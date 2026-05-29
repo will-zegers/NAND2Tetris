@@ -4,8 +4,8 @@ const DESTS_FILE = "dests.txt";
 const COMPS_FILE = "comps.txt";
 const JUMPS_FILE = "jumps.txt";
 
-const BUFFER_SIZE = 1024;
-const READ_BUFFER_SIZE = 256 * 1024;
+const MAP_BUFFER_SIZE = 1024;
+const FILE_BUFFER_SIZE = 1024 * 1024;
 
 pub fn main(init: std.process.Init) !void {
     var iterator =
@@ -25,39 +25,41 @@ pub fn main(init: std.process.Init) !void {
     const output_path = std.fmt.allocPrint(init.gpa, "{s}.hack", .{base_name}) catch unreachable;
     defer init.gpa.free(output_path);
 
-    var comp_buf: [BUFFER_SIZE]u8 = undefined;
-    var dest_buf: [BUFFER_SIZE]u8 = undefined;
-    var jump_buf: [BUFFER_SIZE]u8 = undefined;
-    var read_buf: [READ_BUFFER_SIZE]u8 = undefined;
+    var comp_buf: [MAP_BUFFER_SIZE]u8 = undefined;
+    var dest_buf: [MAP_BUFFER_SIZE]u8 = undefined;
+    var jump_buf: [MAP_BUFFER_SIZE]u8 = undefined;
+    var in_buf: [FILE_BUFFER_SIZE]u8 = undefined;
+    var out_buf: [FILE_BUFFER_SIZE]u8 = undefined;
 
-    var comps_map = try hashmap_from_file(init.io, COMPS_FILE, &comp_buf);
-    var dests_map = try hashmap_from_file(init.io, DESTS_FILE, &dest_buf);
-    var jumps_map = try hashmap_from_file(init.io, JUMPS_FILE, &jump_buf);
+    var comps_map = try hashmap_from_file(init.io, init.gpa, COMPS_FILE, &comp_buf);
+    defer comps_map.deinit();
+    var dests_map = try hashmap_from_file(init.io, init.gpa, DESTS_FILE, &dest_buf);
+    defer dests_map.deinit();
+    var jumps_map = try hashmap_from_file(init.io, init.gpa, JUMPS_FILE, &jump_buf);
+    defer jumps_map.deinit();
 
     const cwd = std.Io.Dir.cwd();
     const input_file = try cwd.openFile(init.io, input_path.?, .{ .mode = .read_only });
     defer input_file.close(init.io);
-    const output_file = try cwd.createFile(init.io, output_path, .{ .read = false });
-    defer output_file.close(init.io);
 
-    var fr = input_file.reader(init.io, &read_buf);
+    var fr = input_file.reader(init.io, &in_buf);
     var reader = &fr.interface;
 
     var total_bytes: usize = 0;
     while (true) {
-        const bytes_read = reader.readSliceShort(read_buf[total_bytes..]) catch 0;
-        if (total_bytes + bytes_read >= READ_BUFFER_SIZE) {
-            std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{READ_BUFFER_SIZE});
+        const bytes_read = reader.readSliceShort(in_buf[total_bytes..]) catch 0;
+        if (total_bytes + bytes_read >= FILE_BUFFER_SIZE) {
+            std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{FILE_BUFFER_SIZE});
         }
         if (bytes_read == 0) {
             break;
         }
         total_bytes += bytes_read;
     }
-    var instructions = std.mem.splitScalar(u8, read_buf[0 .. total_bytes - 1], '\n');
+    var instructions = std.mem.splitScalar(u8, in_buf[0 .. total_bytes - 1], '\n');
 
-    var machine_fmt: [17]u8 = undefined; // 16 bits + newline
     var pc_value: usize = 0;
+    var bytes_out: usize = 0;
     while (instructions.next()) |instruction| {
         if (std.mem.startsWith(u8, instruction, "//")) {
             continue;
@@ -71,7 +73,8 @@ pub fn main(init: std.process.Init) !void {
             const value = instruction[1..instruction.len];
             const num_value = try std.fmt.parseInt(u16, value, 10);
 
-            _ = try std.fmt.bufPrint(&machine_fmt, "{b:0>16}\n", .{num_value});
+            const buf = try std.fmt.bufPrint(out_buf[bytes_out..], "{b:0>16}\n", .{num_value});
+            bytes_out += buf.len;
         } else {
             var comp: ?[]const u8 = undefined;
             var dest_machine: ?[]const u8 = "000";
@@ -102,14 +105,14 @@ pub fn main(init: std.process.Init) !void {
                 std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
             }
 
-            _ = try std.fmt.bufPrint(&machine_fmt, "111{c}{s}{s}{s}\n", .{ a, comp_machine.?, dest_machine.?, jump_machine.? });
+            const buf = try std.fmt.bufPrint(out_buf[bytes_out..], "111{c}{s}{s}{s}\n", .{ a, comp_machine.?, dest_machine.?, jump_machine.? });
+            bytes_out += buf.len;
         }
-
-        const length = try output_file.length(init.io);
-        _ = try output_file.writePositionalAll(init.io, &machine_fmt, length);
-
         pc_value += 1;
     }
+    const output_file = try cwd.createFile(init.io, output_path, .{ .read = false });
+    defer output_file.close(init.io);
+    _ = try output_file.writePositionalAll(init.io, &out_buf, 0);
 }
 
 fn get_a_bit(comp: []const u8) u8 {
@@ -138,11 +141,11 @@ fn is_jump_instruction(instruction: []const u8) bool {
     return false;
 }
 
-fn hashmap_from_file(io: std.Io, filename: []const u8, buffer: []u8) !std.StringHashMap([]const u8) {
+fn hashmap_from_file(io: std.Io, allocator: std.mem.Allocator, filename: []const u8, buffer: []u8) !std.StringHashMap([]const u8) {
     const file = try std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only });
     defer file.close(io);
 
-    var map = std.StringHashMap([]const u8).init(std.heap.page_allocator);
+    var map = std.StringHashMap([]const u8).init(allocator);
 
     var fr = file.reader(io, buffer);
     var reader = &fr.interface;
