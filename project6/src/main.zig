@@ -17,7 +17,7 @@ pub fn main(init: std.process.Init) !void {
     _ = iterator.skip(); // skip the program name
     const input_path = iterator.next();
     if (input_path == null) {
-        std.debug.print("Usage: hack-assmbler <input_file.asm>\n", .{});
+        std.debug.print("Usage: hack-assembler <input_file>.asm\n", .{});
         return;
     }
     var it = std.mem.splitScalar(u8, input_path.?, '.');
@@ -60,7 +60,9 @@ pub fn main(init: std.process.Init) !void {
 
     var pc_value: usize = 0;
     var bytes_out: usize = 0;
+    var file_line_num: usize = 0;
     while (instructions.next()) |instruction| {
+        file_line_num += 1;
         if (std.mem.startsWith(u8, instruction, "//")) {
             continue;
         }
@@ -71,10 +73,13 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.startsWith(u8, instruction, "@")) {
             const value = instruction[1..instruction.len];
-            const num_value = try std.fmt.parseInt(u16, value, 10);
-
-            const buf = try std.fmt.bufPrint(out_buf[bytes_out..], "{b:0>16}\n", .{num_value});
-            bytes_out += buf.len;
+            if (!is_numeric(value)) {
+                std.process.fatal("{s}:{d} '{s}'\nLabel and variable symbols not currently supported\n", .{ input_path.?, file_line_num, instruction });
+            } else {
+                const num_value = try std.fmt.parseInt(u16, value, 10);
+                const buf = try std.fmt.bufPrint(out_buf[bytes_out..], "{b:0>16}\n", .{num_value});
+                bytes_out += buf.len;
+            }
         } else {
             var comp: ?[]const u8 = undefined;
             var dest_machine: ?[]const u8 = "000";
@@ -87,14 +92,14 @@ pub fn main(init: std.process.Init) !void {
                 comp = ins.next();
                 const jump = ins.next();
                 if (comp == null or jump == null) {
-                    std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+                    std.process.fatal("{s}:{d} Error parsing instruction '{s}'\n", .{ input_path.?, file_line_num, instruction });
                 }
                 jump_machine = jumps_map.get(jump.?);
             } else { // else it's a dest=comp instruction
                 const dest = ins.next();
                 comp = ins.next();
                 if (dest == null or comp == null) {
-                    std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+                    std.process.fatal("{s}:{d} Error parsing instruction '{s}'\n", .{ input_path.?, file_line_num, instruction });
                 }
                 dest_machine = dests_map.get(dest.?);
             }
@@ -102,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
             const a = get_a_bit(comp.?);
             const comp_machine = comps_map.get(comp.?);
             if (comp_machine == null or dest_machine == null or jump_machine == null) {
-                std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+                std.process.fatal("{s}:{d} Error parsing instruction '{s}'\n", .{ input_path.?, file_line_num, instruction });
             }
 
             const buf = try std.fmt.bufPrint(out_buf[bytes_out..], "111{c}{s}{s}{s}\n", .{ a, comp_machine.?, dest_machine.?, jump_machine.? });
@@ -112,7 +117,12 @@ pub fn main(init: std.process.Init) !void {
     }
     const output_file = try cwd.createFile(init.io, output_path, .{ .read = false });
     defer output_file.close(init.io);
-    _ = try output_file.writePositionalAll(init.io, &out_buf, 0);
+    _ = try output_file.writePositionalAll(init.io, out_buf[0 .. bytes_out - 1], 0);
+}
+
+fn is_numeric(s: []const u8) bool {
+    _ = std.fmt.parseInt(u16, s, 10) catch return false;
+    return true;
 }
 
 fn get_a_bit(comp: []const u8) u8 {
