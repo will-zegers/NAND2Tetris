@@ -1,11 +1,11 @@
 const std = @import("std");
-const expect = std.testing.expect;
 
 const DESTS_FILE = "dests.txt";
 const COMPS_FILE = "comps.txt";
 const JUMPS_FILE = "jumps.txt";
 
 const BUFFER_SIZE = 1024;
+const READ_BUFFER_SIZE = 256 * 1024;
 
 pub fn main(init: std.process.Init) !void {
     var iterator =
@@ -15,33 +15,49 @@ pub fn main(init: std.process.Init) !void {
     defer iterator.deinit();
 
     _ = iterator.skip(); // skip the program name
-    const input_path = iterator.next() orelse "MaxL.asm";
-    var it = std.mem.splitScalar(u8, input_path, '.');
-    const base_name = it.next() orelse unreachable;
+    const input_path = iterator.next();
+    if (input_path == null) {
+        std.debug.print("Usage: hack-assmbler <input_file.asm>\n", .{});
+        return;
+    }
+    var it = std.mem.splitScalar(u8, input_path.?, '.');
+    const base_name = it.next().?;
     const output_path = std.fmt.allocPrint(init.gpa, "{s}.hack", .{base_name}) catch unreachable;
     defer init.gpa.free(output_path);
 
     var comp_buf: [BUFFER_SIZE]u8 = undefined;
     var dest_buf: [BUFFER_SIZE]u8 = undefined;
     var jump_buf: [BUFFER_SIZE]u8 = undefined;
-    var read_buf: [BUFFER_SIZE]u8 = undefined;
+    var read_buf: [READ_BUFFER_SIZE]u8 = undefined;
 
     var comps_map = try hashmap_from_file(init.io, COMPS_FILE, &comp_buf);
     var dests_map = try hashmap_from_file(init.io, DESTS_FILE, &dest_buf);
     var jumps_map = try hashmap_from_file(init.io, JUMPS_FILE, &jump_buf);
 
     const cwd = std.Io.Dir.cwd();
-    const input_file = try cwd.openFile(init.io, input_path, .{ .mode = .read_only });
+    const input_file = try cwd.openFile(init.io, input_path.?, .{ .mode = .read_only });
     defer input_file.close(init.io);
     const output_file = try cwd.createFile(init.io, output_path, .{ .read = false });
     defer output_file.close(init.io);
 
     var fr = input_file.reader(init.io, &read_buf);
     var reader = &fr.interface;
-    const bytes_read = reader.readSliceShort(&read_buf) catch 0;
-    var instructions = std.mem.splitScalar(u8, read_buf[0 .. bytes_read - 1], '\n');
+
+    var total_bytes: usize = 0;
+    while (true) {
+        const bytes_read = reader.readSliceShort(read_buf[total_bytes..]) catch 0;
+        if (total_bytes + bytes_read >= READ_BUFFER_SIZE) {
+            std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{READ_BUFFER_SIZE});
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        total_bytes += bytes_read;
+    }
+    var instructions = std.mem.splitScalar(u8, read_buf[0 .. total_bytes - 1], '\n');
 
     var machine_fmt: [17]u8 = undefined; // 16 bits + newline
+    var pc_value: usize = 0;
     while (instructions.next()) |instruction| {
         if (std.mem.startsWith(u8, instruction, "//")) {
             continue;
@@ -57,31 +73,42 @@ pub fn main(init: std.process.Init) !void {
 
             _ = try std.fmt.bufPrint(&machine_fmt, "{b:0>16}\n", .{num_value});
         } else {
-            var comp: []const u8 = undefined;
-            var dest_machine: []const u8 = "000";
-            var jump_machine: []const u8 = "000";
+            var comp: ?[]const u8 = undefined;
+            var dest_machine: ?[]const u8 = "000";
+            var jump_machine: ?[]const u8 = "000";
 
             const split_char: u8 = get_split_char(instruction);
             var ins = std.mem.splitScalar(u8, instruction, split_char);
 
             if (split_char == ';') { // if it's a jump instruction, then it's comp;jump
-                comp = ins.next() orelse unreachable;
-                const jump = ins.next() orelse unreachable;
-                jump_machine = jumps_map.get(jump) orelse unreachable;
+                comp = ins.next();
+                const jump = ins.next();
+                if (comp == null or jump == null) {
+                    std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+                }
+                jump_machine = jumps_map.get(jump.?);
             } else { // else it's a dest=comp instruction
-                const dest = ins.next() orelse unreachable;
-                comp = ins.next() orelse unreachable;
-                dest_machine = dests_map.get(dest) orelse unreachable;
+                const dest = ins.next();
+                comp = ins.next();
+                if (dest == null or comp == null) {
+                    std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+                }
+                dest_machine = dests_map.get(dest.?);
             }
 
-            const a = get_a_bit(comp);
-            const comp_machine = comps_map.get(comp) orelse unreachable;
+            const a = get_a_bit(comp.?);
+            const comp_machine = comps_map.get(comp.?);
+            if (comp_machine == null or dest_machine == null or jump_machine == null) {
+                std.process.fatal("Error parsing instruction: {s}\n", .{instruction});
+            }
 
-            _ = try std.fmt.bufPrint(&machine_fmt, "111{c}{s}{s}{s}\n", .{ a, comp_machine, dest_machine, jump_machine });
+            _ = try std.fmt.bufPrint(&machine_fmt, "111{c}{s}{s}{s}\n", .{ a, comp_machine.?, dest_machine.?, jump_machine.? });
         }
 
         const length = try output_file.length(init.io);
         _ = try output_file.writePositionalAll(init.io, &machine_fmt, length);
+
+        pc_value += 1;
     }
 }
 
