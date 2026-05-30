@@ -143,12 +143,12 @@ fn isWhiteSpace(char: u8) bool {
 }
 
 test "init" {
-    const parser = try Parser().init("Test.asm", testing.io);
+    const parser = try Parser().init("./test/Test.asm", testing.io);
     try testing.expect(@TypeOf(parser) == Parser());
 }
 
 test "hasMoreCommands" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     try testing.expect(parser.hasMoreCommands());
     parser.advance();
     try testing.expect(parser.hasMoreCommands());
@@ -159,7 +159,7 @@ test "hasMoreCommands" {
 }
 
 test "advance" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     try testing.expect(parser.current_instruction == null);
     for (0..27) |_| {
         parser.advance();
@@ -170,7 +170,7 @@ test "advance" {
 }
 
 test "commandType" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     parser.advance();
     try testing.expect(parser.commandType().? == .A_COMMAND);
     parser.advance();
@@ -182,7 +182,7 @@ test "commandType" {
 }
 
 test "symbol" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     parser.advance();
     for (0..9) |_| {
         parser.advance();
@@ -193,7 +193,7 @@ test "symbol" {
 }
 
 test "dest" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     parser.advance();
     try testing.expect(parser.symbol() == null);
     parser.advance();
@@ -205,7 +205,7 @@ test "dest" {
 }
 
 test "comp" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     parser.advance();
     try testing.expect(parser.comp() == null);
     parser.advance();
@@ -221,7 +221,7 @@ test "comp" {
 }
 
 test "jump" {
-    var parser = try Parser().init("Test.asm", testing.io);
+    var parser = try Parser().init("./test/Test.asm", testing.io);
     for (0..3) |_| {
         parser.advance();
         try testing.expect(parser.jump() == null);

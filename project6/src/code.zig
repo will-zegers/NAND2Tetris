@@ -1,16 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
+const util = @import("util.zig");
 
-const COMP_FILE = "comp.table";
-const DEST_FILE = "dest.table";
-const JUMP_FILE = "jump.table";
+const COMP_FILE = "./table/comp.table";
+const DEST_FILE = "./table/dest.table";
+const JUMP_FILE = "./table/jump.table";
 
 const BUFFER_SIZE = 1024;
-
-const ParseError = error{
-    DuplicateKeys,
-    FileTooLarge,
-};
 
 pub fn Code() type {
     return struct {
@@ -23,9 +19,9 @@ pub fn Code() type {
 
         pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
             return Self{
-                .comp_table = try hashmap_from_file(COMP_FILE, ':', io, allocator),
-                .dest_table = try hashmap_from_file(DEST_FILE, ':', io, allocator),
-                .jump_table = try hashmap_from_file(JUMP_FILE, ':', io, allocator),
+                .comp_table = try util.hashmap_from_file(COMP_FILE, ':', io, allocator),
+                .dest_table = try util.hashmap_from_file(DEST_FILE, ':', io, allocator),
+                .jump_table = try util.hashmap_from_file(JUMP_FILE, ':', io, allocator),
                 .allocator = allocator,
             };
         }
@@ -43,59 +39,11 @@ pub fn Code() type {
         }
 
         pub fn deinit(self: *Self) void {
-            freeMap(&self.comp_table, self.allocator);
-            freeMap(&self.dest_table, self.allocator);
-            freeMap(&self.jump_table, self.allocator);
+            util.freeMap(&self.comp_table, self.allocator);
+            util.freeMap(&self.dest_table, self.allocator);
+            util.freeMap(&self.jump_table, self.allocator);
         }
     };
-}
-
-fn hashmap_from_file(filename: []const u8, delimiter: u8, io: std.Io, allocator: std.mem.Allocator) !std.StringHashMap([]const u8) {
-    const file = try std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only });
-    defer file.close(io);
-
-    var buffer: [BUFFER_SIZE]u8 = undefined;
-
-    var fr = file.reader(io, &buffer);
-    var reader = &fr.interface;
-    var total_bytes: usize = 0;
-    while (true) {
-        const bytes_read = reader.readSliceShort(buffer[total_bytes..]) catch 0;
-        if (total_bytes + bytes_read >= BUFFER_SIZE) {
-            return ParseError.FileTooLarge;
-        }
-        if (bytes_read == 0) {
-            break;
-        }
-        total_bytes += bytes_read;
-    }
-    var lines = std.mem.splitScalar(u8, buffer[0 .. total_bytes - 1], '\n');
-
-    var map = std.StringHashMap([]const u8).init(allocator);
-
-    while (lines.next()) |line| {
-        var key_val = std.mem.splitScalar(u8, line, delimiter);
-        const key = key_val.next() orelse unreachable;
-        const value = key_val.next() orelse unreachable;
-
-        if (map.contains(key)) { // tables should not have duplicate keys and result in clobbering
-            freeMap(&map, allocator);
-            return ParseError.DuplicateKeys;
-        } else {
-            try map.put(try allocator.dupe(u8, key), try allocator.dupe(u8, value));
-        }
-    }
-
-    return map;
-}
-
-fn freeMap(map: *std.StringHashMap([]const u8), allocator: std.mem.Allocator) void {
-    var entries = map.iterator();
-    while (entries.next()) |entry| {
-        allocator.free(entry.key_ptr.*);
-        allocator.free(entry.value_ptr.*);
-    }
-    map.deinit();
 }
 
 test "init" {
