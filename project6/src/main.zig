@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const DESTS_FILE = "dests.txt";
-const COMPS_FILE = "comps.txt";
-const JUMPS_FILE = "jumps.txt";
+const DESTS_FILE = "dest.table";
+const COMPS_FILE = "comp.table";
+const JUMPS_FILE = "jump.table";
 
 const MAP_BUFFER_SIZE = 1024;
 const FILE_BUFFER_SIZE = 1024 * 1024;
