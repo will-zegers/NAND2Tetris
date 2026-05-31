@@ -1,4 +1,5 @@
 *.hack
+*~
 
 zig-out
 .zig-cache

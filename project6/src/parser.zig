@@ -32,6 +32,13 @@ pub fn Parser() type {
         }
 
         pub fn hasMoreCommands(self: *Self) bool {
+            while (self.instructions.peek()) |next| {
+                // Check if there's more instructions past comments and blank lines
+                if (!std.mem.startsWith(u8, next, "//") and next.len != 0) {
+                    break;
+                }
+                _ = self.instructions.next();
+            }
             return self.instructions.peek() != null;
         }
 

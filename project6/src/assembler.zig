@@ -47,7 +47,7 @@ pub fn Assembler() type {
             var pc: usize = 0;
             var length: usize = 0;
             var out: [BUFFER_SIZE]u8 = undefined;
-            var parser = try Parser().init(self.buffer[0 .. self.buffer_length - 1]);
+            var parser = try Parser().init(self.buffer[0..self.buffer_length]);
 
             while (parser.hasMoreCommands()) {
                 var buf: []u8 = undefined;
@@ -76,7 +76,7 @@ pub fn Assembler() type {
         fn secondPass(self: *Self) !void {
             var length: usize = 0;
             var out: [BUFFER_SIZE]u8 = undefined;
-            var parser = try Parser().init(self.buffer[0 .. self.buffer_length - 1]);
+            var parser = try Parser().init(self.buffer[0..self.buffer_length]);
             var ram_addr: usize = 0x10;
 
             while (parser.hasMoreCommands()) {
