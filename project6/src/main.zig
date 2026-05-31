@@ -1,9 +1,12 @@
 const std = @import("std");
-const Table = @import("table.zig").ParserTable;
-const Parser = @import("parser.zig").Parser;
-const Code = @import("code.zig").Code;
+
+const code = @import("code.zig");
 
 pub fn main(init: std.process.Init) !void {
-    var table = try Table().init("test.table", init.io, init.gpa);
-    defer table.deinit();
+    _ = init;
+    if (std.fmt.parseInt(u16, "x42", 10)) |n| {
+        std.debug.print("Hello Zig!\n@{b:0>16}\n", .{n});
+    } else |_| {
+        std.debug.print("Hello Zig!\n@{b:0>16}\n", .{69});
+    }
 }

@@ -56,6 +56,34 @@ pub fn freeMap(map: *std.StringHashMap([]const u8), allocator: std.mem.Allocator
     map.deinit();
 }
 
+pub fn readASMFile(asm_file: []const u8, buffer: []u8, io: std.Io) !usize {
+    const input_file = try std.Io.Dir.cwd().openFile(io, asm_file, .{ .mode = .read_only });
+    var fr = input_file.reader(io, buffer);
+    var reader = &fr.interface;
+
+    var total_bytes: usize = 0;
+    while (true) {
+        const bytes_read = reader.readSliceShort(buffer[total_bytes..]) catch 0;
+        if (total_bytes + bytes_read >= BUFFER_SIZE) {
+            std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{BUFFER_SIZE});
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        total_bytes += bytes_read;
+    }
+    return total_bytes;
+}
+
+pub fn contains(haystack: []const u8, needle: u8) bool {
+    for (haystack) |char| {
+        if (char == needle) {
+            return true;
+        }
+    }
+    return false;
+}
+
 test "hashmap_from_file no duplicates" {
     var map = try hashmap_from_file("./test/test.table", ':', testing.io, testing.allocator);
     defer freeMap(&map, testing.allocator);
@@ -71,4 +99,11 @@ test "hashmap_from_file fail on duplicates" {
 test "freeMap" {
     var map = try hashmap_from_file("./test/test.table", ':', testing.io, testing.allocator);
     defer freeMap(&map, testing.allocator);
+}
+
+test "readASMFile" {
+    const file_path = "./test/Test.asm";
+    var buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try readASMFile(file_path, &buffer, testing.io);
+    try testing.expect(length == 730);
 }

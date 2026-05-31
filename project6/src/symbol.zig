@@ -19,19 +19,23 @@ pub fn SymbolTable() type {
             };
         }
 
+        pub fn deinit(self: *Self) void {
+            util.freeMap(&self.table, self.allocator);
+        }
+
         pub fn contains(self: Self, symbol: []const u8) bool {
             return self.table.contains(symbol);
         }
 
-        pub fn addEntry(self: *Self, symbol: []const u8, address: []const u8) !void {
-            try self.table.put(try self.allocator.dupe(u8, symbol), try self.allocator.dupe(u8, address));
-        }
-        pub fn getAddress(self: Self, symbol: []const u8) ?[]const u8 {
-            return self.table.get(symbol);
+        pub fn addEntry(self: *Self, symbol: []const u8, address: usize) !void {
+            var buf: [8:0]u8 = undefined;
+
+            const str = try std.fmt.bufPrint(&buf, "{d}", .{address});
+            try self.table.put(try self.allocator.dupe(u8, symbol), try self.allocator.dupe(u8, str));
         }
 
-        pub fn deinit(self: *Self) void {
-            util.freeMap(&self.table, self.allocator);
+        pub fn getAddress(self: Self, symbol: []const u8) ?[]const u8 {
+            return self.table.get(symbol);
         }
     };
 }
@@ -59,7 +63,7 @@ test "addEntry and getAddress" {
     var table = try SymbolTable().init(testing.io, testing.allocator);
     defer table.deinit();
 
-    try table.addEntry("foo", "12345");
+    try table.addEntry("foo", 12345);
     try testing.expect(table.contains("foo"));
-    try testing.expectEqualStrings(table.getAddress("foo").?, "12345");
+    try testing.expectEqualStrings("12345", table.getAddress("foo").?);
 }

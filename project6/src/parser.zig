@@ -1,7 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
 
-const FILE_BUFFER_SIZE = 1024 * 1024;
+const util = @import("util.zig");
+
+const BUFFER_SIZE = 1024 * 1024;
 
 const CommandType = enum {
     A_COMMAND,
@@ -19,32 +21,13 @@ pub fn Parser() type {
         current_instruction: ?[]const u8,
         instructions: std.mem.SplitIterator(u8, .scalar),
 
-        pub fn init(input_path: []const u8, io: std.Io) !Self {
-            var in_buf: [FILE_BUFFER_SIZE]u8 = undefined;
-
-            const input_file = try std.Io.Dir.cwd().openFile(io, input_path, .{ .mode = .read_only });
-            var fr = input_file.reader(io, &in_buf);
-            var reader = &fr.interface;
-
-            var total_bytes: usize = 0;
-            while (true) {
-                const bytes_read = reader.readSliceShort(in_buf[total_bytes..]) catch 0;
-                if (total_bytes + bytes_read >= FILE_BUFFER_SIZE) {
-                    std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{FILE_BUFFER_SIZE});
-                }
-                if (bytes_read == 0) {
-                    break;
-                }
-                total_bytes += bytes_read;
-            }
-            const instructions = std.mem.splitScalar(u8, in_buf[0 .. total_bytes - 1], '\n');
-
+        pub fn init(input: []const u8) !Self {
             return Self{
                 .pc_value = 0,
                 .bytes_out = 0,
                 .file_line_num = 0,
                 .current_instruction = null,
-                .instructions = instructions,
+                .instructions = std.mem.splitScalar(u8, input, '\n'),
             };
         }
 
@@ -71,27 +54,34 @@ pub fn Parser() type {
                 return .A_COMMAND;
             } else if (std.mem.startsWith(u8, self.current_instruction.?, "(") and std.mem.endsWith(u8, self.current_instruction.?, ")")) {
                 return .L_COMMAND;
-            } else {
+            } else if (util.contains(self.current_instruction.?, '=') or util.contains(self.current_instruction.?, ';')) {
                 return .C_COMMAND;
             }
+
+            return null;
         }
 
         pub fn symbol(self: *Self) ?[]const u8 {
-            if (self.commandType() != .L_COMMAND) {
-                return null;
-            }
-
             const length = self.current_instruction.?.len;
-            return self.current_instruction.?[1 .. length - 1];
+            if (self.commandType() == .A_COMMAND) {
+                return self.current_instruction.?[1..];
+            } else if (self.commandType() == .L_COMMAND) {
+                return self.current_instruction.?[1 .. length - 1];
+            }
+            return null;
         }
 
         pub fn dest(self: *Self) ?[]const u8 {
+            if (!util.contains(self.current_instruction.?, '=')) {
+                return null;
+            }
+
             var c_instruction = std.mem.splitScalar(u8, self.current_instruction.?, '=');
             return c_instruction.first();
         }
 
         pub fn comp(self: *Self) ?[]const u8 {
-            if (instructionContains(self.current_instruction.?, ';')) {
+            if (util.contains(self.current_instruction.?, ';')) {
                 var c_instruction = std.mem.splitScalar(u8, self.current_instruction.?, ';');
                 return c_instruction.first();
             }
@@ -102,20 +92,15 @@ pub fn Parser() type {
         }
 
         pub fn jump(self: *Self) ?[]const u8 {
+            if (!util.contains(self.current_instruction.?, ';')) {
+                return null;
+            }
+
             var c_instruction = std.mem.splitScalar(u8, self.current_instruction.?, ';');
             _ = c_instruction.next();
             return c_instruction.next();
         }
     };
-}
-
-fn instructionContains(haystack: []const u8, needle: u8) bool {
-    for (haystack) |char| {
-        if (char == needle) {
-            return true;
-        }
-    }
-    return false;
 }
 
 fn trim(string: []const u8) []const u8 {
@@ -143,12 +128,18 @@ fn isWhiteSpace(char: u8) bool {
 }
 
 test "init" {
-    const parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+
+    const parser = try Parser().init(file_buffer[0..length]);
     try testing.expect(@TypeOf(parser) == Parser());
 }
 
 test "hasMoreCommands" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     try testing.expect(parser.hasMoreCommands());
     parser.advance();
     try testing.expect(parser.hasMoreCommands());
@@ -159,7 +150,10 @@ test "hasMoreCommands" {
 }
 
 test "advance" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE:0]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     try testing.expect(parser.current_instruction == null);
     for (0..27) |_| {
         parser.advance();
@@ -170,7 +164,10 @@ test "advance" {
 }
 
 test "commandType" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     parser.advance();
     try testing.expect(parser.commandType().? == .A_COMMAND);
     parser.advance();
@@ -182,30 +179,45 @@ test "commandType" {
 }
 
 test "symbol" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     parser.advance();
-    for (0..9) |_| {
+    try testing.expect(std.mem.eql(u8, parser.symbol().?, "R0"));
+    for (0..6) |_| {
         parser.advance();
-        try testing.expect(parser.symbol() == null);
     }
-    parser.advance();
+    try testing.expect(std.mem.eql(u8, parser.symbol().?, "SCREEN"));
+    for (0..4) |_| {
+        parser.advance();
+    }
     try testing.expect(std.mem.eql(u8, parser.symbol().?, "LOOP"));
 }
 
 test "dest" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     parser.advance();
-    try testing.expect(parser.symbol() == null);
     parser.advance();
     try testing.expect(std.mem.eql(u8, parser.dest().?, "D"));
-    for (0..8) |_| {
+    for (0..3) |_| {
+        parser.advance();
+    }
+    try testing.expect(parser.dest() == null);
+    for (0..5) |_| {
         parser.advance();
     }
     try testing.expect(std.mem.eql(u8, parser.dest().?, "M"));
 }
 
 test "comp" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     parser.advance();
     try testing.expect(parser.comp() == null);
     parser.advance();
@@ -221,7 +233,10 @@ test "comp" {
 }
 
 test "jump" {
-    var parser = try Parser().init("./test/Test.asm", testing.io);
+    var file_buffer: [BUFFER_SIZE]u8 = undefined;
+    const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
+    var parser = try Parser().init(file_buffer[0..length]);
+
     for (0..3) |_| {
         parser.advance();
         try testing.expect(parser.jump() == null);
