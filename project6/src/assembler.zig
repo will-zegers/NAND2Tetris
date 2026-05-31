@@ -6,24 +6,24 @@ const Parser = @import("parser.zig").Parser;
 const SymbolTable = @import("symbol.zig").SymbolTable;
 const util = @import("util.zig");
 
-const BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
 
 pub fn Assembler() type {
     return struct {
         const Self = @This();
 
         allocator: std.mem.Allocator,
-        length: usize,
         buffer: []u8,
+        buffer_length: usize,
         code: Code(),
         symbol_table: SymbolTable(),
 
         pub fn init(asm_path: []const u8, io: std.Io, allocator: std.mem.Allocator) !Self {
             const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
-            const length = try util.readASMFile(asm_path, buffer, io);
+            const buffer_length = try util.readASMFile(asm_path, buffer, io);
             return Self{
                 .allocator = allocator,
-                .length = length,
+                .buffer_length = buffer_length,
                 .buffer = buffer,
                 .code = try Code().init(io, allocator),
                 .symbol_table = try SymbolTable().init(io, allocator),
@@ -36,40 +36,47 @@ pub fn Assembler() type {
             self.symbol_table.deinit();
         }
 
-        pub fn firstPass(self: *Self) !void {
+        pub fn assemble(self: *Self) ![]const u8 {
+            try self.firstPass();
+            try self.secondPass();
+
+            return self.buffer[0 .. self.buffer_length - 1];
+        }
+
+        fn firstPass(self: *Self) !void {
             var pc: usize = 0;
             var length: usize = 0;
             var out: [BUFFER_SIZE]u8 = undefined;
-            var parser = try Parser().init(self.buffer[0 .. self.length - 1]);
+            var parser = try Parser().init(self.buffer[0 .. self.buffer_length - 1]);
 
             while (parser.hasMoreCommands()) {
+                var buf: []u8 = undefined;
+
                 parser.advance();
                 if (parser.commandType() == .L_COMMAND) {
                     try self.symbol_table.addEntry(parser.symbol().?, pc);
                     continue;
                 } else if (parser.symbol()) |symbol| {
-                    const buf = try std.fmt.bufPrint(out[length..], "@{s}\n", .{symbol});
-                    length += buf.len;
+                    buf = try std.fmt.bufPrint(out[length..], "@{s}\n", .{symbol});
                 } else {
                     const comp = parser.comp().?;
                     if (parser.dest()) |dest| {
-                        const buf = try std.fmt.bufPrint(out[length..], "{s}={s}\n", .{ dest, comp });
-                        length += buf.len;
+                        buf = try std.fmt.bufPrint(out[length..], "{s}={s}\n", .{ dest, comp });
                     } else if (parser.jump()) |jump| {
-                        const buf = try std.fmt.bufPrint(out[length..], "{s};{s}\n", .{ comp, jump });
-                        length += buf.len;
+                        buf = try std.fmt.bufPrint(out[length..], "{s};{s}\n", .{ comp, jump });
                     }
                 }
+                length += buf.len;
                 pc += 1;
             }
             @memcpy(self.buffer, &out);
-            self.length = length;
+            self.buffer_length = length;
         }
 
-        pub fn secondPass(self: *Self) !void {
+        fn secondPass(self: *Self) !void {
             var length: usize = 0;
             var out: [BUFFER_SIZE]u8 = undefined;
-            var parser = try Parser().init(self.buffer[0 .. self.length - 1]);
+            var parser = try Parser().init(self.buffer[0 .. self.buffer_length - 1]);
             var ram_addr: usize = 0x10;
 
             while (parser.hasMoreCommands()) {
@@ -102,17 +109,9 @@ pub fn Assembler() type {
                 length += buf.len;
             }
             @memcpy(self.buffer, &out);
+            self.buffer_length = length;
         }
     };
-}
-
-fn view(assembler: Assembler()) void {
-    var it = std.mem.splitScalar(u8, assembler.buffer, '\n');
-    var cc: usize = 0;
-    while (it.next()) |line| {
-        std.debug.print("{d} {s}\n", .{ cc, line });
-        cc += line.len + 1;
-    }
 }
 
 test "smoke" {
@@ -132,12 +131,12 @@ test "firstPass" {
     try std.testing.expect(assembler.symbol_table.contains("END"));
 }
 
-test "secondPass" {
+test "secondPass and assemble" {
     var assembler = try Assembler().init("./test/Test.asm", testing.io, testing.allocator);
     defer assembler.deinit();
-    try assembler.firstPass();
-    try assembler.secondPass();
+    const output = try assembler.assemble();
 
+    try testing.expect(output.len == 424);
     try testing.expect(std.mem.eql(u8, "0000000000000000", assembler.buffer[0..16]));
     try testing.expect(std.mem.eql(u8, "0100000000000000", assembler.buffer[102..118]));
     try testing.expect(std.mem.eql(u8, "0000000000010001", assembler.buffer[221..237]));
