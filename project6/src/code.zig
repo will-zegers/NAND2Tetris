@@ -46,7 +46,7 @@ pub fn Code() type {
     };
 }
 
-test "init" {
+test "smoke" {
     var code = try Code().init(testing.io, testing.allocator);
     defer code.deinit();
 }

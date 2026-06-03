@@ -36,6 +36,7 @@ pub fn Assembler() type {
             self.symbol_table.deinit();
         }
 
+        // "AVENGERS...✪!!!"
         pub fn assemble(self: *Self) ![]const u8 {
             try self.firstPass();
             try self.secondPass();
@@ -43,6 +44,7 @@ pub fn Assembler() type {
             return self.buffer[0 .. self.buffer_length - 1];
         }
 
+        // First pass: resolve labels and build symbol table
         fn firstPass(self: *Self) !void {
             var pc: usize = 0;
             var length: usize = 0;
@@ -73,6 +75,7 @@ pub fn Assembler() type {
             self.buffer_length = length;
         }
 
+        // Second pass: translate to binary and resolve symbols
         fn secondPass(self: *Self) !void {
             var length: usize = 0;
             var out: [BUFFER_SIZE]u8 = undefined;

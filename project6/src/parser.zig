@@ -134,7 +134,7 @@ fn isWhiteSpace(char: u8) bool {
     return (char == '\t' or char == ' ');
 }
 
-test "init" {
+test "smoke" {
     var file_buffer: [BUFFER_SIZE]u8 = undefined;
     const length = try util.readASMFile("./test/Test.asm", &file_buffer, testing.io);
 
