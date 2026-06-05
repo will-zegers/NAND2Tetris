@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
     const base_name = it.first(); // Get the base name so we have a corresponding .hack file as output
 
     // Run the assembler
-    var assembler = try Assembler().init(input_path, init.io, init.gpa);
+    var assembler = try Assembler.init(input_path, init.io, init.gpa);
     defer assembler.deinit();
     const output = try assembler.assemble();
 
