@@ -13,7 +13,7 @@ pub const SymbolTable = struct {
 
     pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
         return Self{
-            .table = try util.hashmap_from_file(SYMB_FILE, ':', io, allocator),
+            .table = try util.hashmapFromFile(SYMB_FILE, ':', io, allocator),
             .allocator = allocator,
         };
     }

@@ -13,28 +13,28 @@ pub fn main(init: std.process.Init) !void {
     defer iterator.deinit();
 
     _ = iterator.skip(); // skip the executable name
-    const input_path = iterator.next() orelse {
+    const inputPath = iterator.next() orelse {
         try stdout.writeStreamingAll(init.io, "Usage: hack-assembler <input_file>.asm\n");
         return;
     };
-    var it = std.mem.splitScalar(u8, input_path, '.');
-    const base_name = it.first(); // Get the base name so we have a corresponding .hack file as output
+    var it = std.mem.splitScalar(u8, inputPath, '.');
+    const baseName = it.first(); // Get the base name so we have a corresponding .hack file as output
 
     // Run the assembler
-    var assembler = try Assembler.init(input_path, init.io, init.gpa);
+    var assembler = try Assembler.init(inputPath, init.io, init.gpa);
     defer assembler.deinit();
     const output = try assembler.assemble();
 
     // Write out to a .hack file
-    const output_path = std.fmt.allocPrint(init.gpa, "{s}.hack", .{base_name}) catch unreachable;
-    defer init.gpa.free(output_path);
+    const outputPath = std.fmt.allocPrint(init.gpa, "{s}.hack", .{baseName}) catch unreachable;
+    defer init.gpa.free(outputPath);
 
     const cwd = std.Io.Dir.cwd();
-    const output_file = try cwd.createFile(init.io, output_path, .{ .read = false });
-    defer output_file.close(init.io);
-    _ = try output_file.writePositionalAll(init.io, output, 0);
+    const outputFile = try cwd.createFile(init.io, outputPath, .{ .read = false });
+    defer outputFile.close(init.io);
+    _ = try outputFile.writePositionalAll(init.io, output, 0);
 
     try stdout.writeStreamingAll(init.io, "File written to ");
-    try stdout.writeStreamingAll(init.io, output_path);
+    try stdout.writeStreamingAll(init.io, outputPath);
     try stdout.writeStreamingAll(init.io, "\n");
 }

@@ -11,36 +11,36 @@ const BUFFER_SIZE = 1024;
 pub const Code = struct {
     const Self = @This();
 
-    comp_table: std.StringHashMap([]const u8),
-    dest_table: std.StringHashMap([]const u8),
-    jump_table: std.StringHashMap([]const u8),
+    compTable: std.StringHashMap([]const u8),
+    destTable: std.StringHashMap([]const u8),
+    jumpTable: std.StringHashMap([]const u8),
     allocator: std.mem.Allocator,
 
     pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
         return Self{
-            .comp_table = try util.hashmap_from_file(COMP_FILE, ':', io, allocator),
-            .dest_table = try util.hashmap_from_file(DEST_FILE, ':', io, allocator),
-            .jump_table = try util.hashmap_from_file(JUMP_FILE, ':', io, allocator),
+            .compTable = try util.hashmapFromFile(COMP_FILE, ':', io, allocator),
+            .destTable = try util.hashmapFromFile(DEST_FILE, ':', io, allocator),
+            .jumpTable = try util.hashmapFromFile(JUMP_FILE, ':', io, allocator),
             .allocator = allocator,
         };
     }
 
     pub fn dest(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.dest_table.get(mnemonic);
+        return self.destTable.get(mnemonic);
     }
 
     pub fn comp(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.comp_table.get(mnemonic);
+        return self.compTable.get(mnemonic);
     }
 
     pub fn jump(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.jump_table.get(mnemonic);
+        return self.jumpTable.get(mnemonic);
     }
 
     pub fn deinit(self: *Self) void {
-        util.freeMap(&self.comp_table, self.allocator);
-        util.freeMap(&self.dest_table, self.allocator);
-        util.freeMap(&self.jump_table, self.allocator);
+        util.freeMap(&self.compTable, self.allocator);
+        util.freeMap(&self.destTable, self.allocator);
+        util.freeMap(&self.jumpTable, self.allocator);
     }
 };
 
