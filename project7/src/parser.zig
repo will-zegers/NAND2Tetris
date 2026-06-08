@@ -55,7 +55,7 @@ pub const Parser = struct {
     }
 
     pub fn commandType(self: Self) ?CommandType {
-        const command = self.arg1();
+        const command = self.arg0();
         if (command == null) {
             return null;
         }
@@ -83,13 +83,27 @@ pub const Parser = struct {
         }
     }
 
-    pub fn arg1(self: Self) ?[]const u8 {
+    fn arg0(self: Self) ?[]const u8 {
         if (self.currentCommand == null) {
             return null;
         }
 
         var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
         return command.first();
+    }
+
+    pub fn arg1(self: Self) ?[]const u8 {
+        if (self.currentCommand == null) {
+            return null;
+        }
+
+        var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
+        if (self.commandType() == .C_ARITHMETIC) {
+            return command.first();
+        } else {
+            _ = command.next();
+            return command.next();
+        }
     }
 
     pub fn arg2(self: Self) ?[]const u8 {
@@ -100,6 +114,7 @@ pub const Parser = struct {
         switch (self.commandType().?) {
             .C_CALL, .C_FUNCTION, .C_POP, .C_PUSH => {
                 var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
+                _ = command.next();
                 _ = command.next();
                 return command.next();
             },
@@ -165,9 +180,9 @@ test "arg1" {
     const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
     var parser = Parser.init(fileBuffer[0..length]);
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg1().?, "push"));
+    try testing.expect(mem.eql(u8, parser.arg1().?, "constant"));
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg1().?, "pop"));
+    try testing.expect(mem.eql(u8, parser.arg1().?, "local"));
     for (0..15) |_| {
         parser.advance();
     }
@@ -182,21 +197,21 @@ test "arg2" {
     const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
     var parser = Parser.init(fileBuffer[0..length]);
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "constant"));
+    try testing.expect(mem.eql(u8, parser.arg2().?, "10"));
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "local"));
-    parser.advance();
-    parser.advance();
-    parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "argument"));
+    try testing.expect(mem.eql(u8, parser.arg2().?, "0"));
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "this"));
+    try testing.expect(mem.eql(u8, parser.arg2().?, "2"));
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "that"));
+    try testing.expect(mem.eql(u8, parser.arg2().?, "6"));
+    parser.advance();
+    parser.advance();
+    parser.advance();
+    try testing.expect(mem.eql(u8, parser.arg2().?, "5"));
     for (0..6) |_| {
         parser.advance();
     }
