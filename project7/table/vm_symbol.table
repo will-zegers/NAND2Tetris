@@ -3,5 +3,7 @@ local:LCL
 argument:ARG
 this:THIS
 that:THAT
-constant:SP
+constant:CONSTANT
 temp:TEMP
+static:STATIC
+pointer:POINTER
