@@ -78,7 +78,7 @@ const Comparison = struct {
 
     operation: []const u8,
 
-    fn init(jumpType: []const u8) Self {
+    fn init(operation: []const u8) Self {
         return Self{
             .operation = operation,
         };
@@ -86,7 +86,7 @@ const Comparison = struct {
 
     pub fn fmt(self: Self, buffer: []u8) ![]const u8 {
         defer index += 1;
-        return std.fmt.bufPrint(buffer[0..], template, .{ index, self.jumpType, index, index, index }) catch |err| {
+        return std.fmt.bufPrint(buffer[0..], template, .{ index, self.operation, index, index, index }) catch |err| {
             return err;
         };
     }

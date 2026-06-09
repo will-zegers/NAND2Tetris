@@ -7,7 +7,6 @@ const Parser = @import("parser.zig").Parser;
 const arithmetic = @import("arithmetic.zig");
 
 const SYMBOL_FILE: []const u8 = "./table/vm_symbol.table";
-const STACK_BASE: usize = 2047;
 const BUFFER_SIZE: usize = 5 * 1024 * 1024;
 const BASE_ADDR_TABLE: []const u8 = "./table/base_addr.table";
 
@@ -88,8 +87,24 @@ pub const CodeWriter = struct {
         const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, value, 10);
         switch (self.parser.commandType().?) {
             .C_PUSH => {
+                var prelude: []u8 = undefined;
+                defer self.allocator.free(prelude);
+
+                if (mem.eql(u8, "THIS", symbol) or (mem.eql(u8, "THAT", symbol))) {
+                    const template =
+                        \\@{s}
+                        \\D=A
+                        \\@{c}
+                        \\D=D+M
+                        \\A=D
+                    ;
+                    const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
+                    prelude = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
+                } else {
+                    prelude = try std.fmt.allocPrint(self.allocator, "@{d}", .{addrOffset});
+                }
                 const output =
-                    \\@{d}
+                    \\{s}
                     \\D={c}
                     \\@SP
                     \\A=M
@@ -99,20 +114,41 @@ pub const CodeWriter = struct {
                     \\
                 ;
                 const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
-                const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{ addrOffset, source });
+                const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{ prelude, source });
                 self.bufferLength += buf.len;
             },
             .C_POP => {
-                const output =
-                    \\@SP
-                    \\AM=M-1
-                    \\D=M
-                    \\@{d}
-                    \\M=D
-                    \\
-                ;
-                const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{addrOffset});
-                self.bufferLength += buf.len;
+                if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol)) {
+                    const template =
+                        \\@{s}
+                        \\D=A
+                        \\@{c}
+                        \\D=D+M
+                        \\@R13
+                        \\M=D
+                        \\@SP
+                        \\AM=M-1
+                        \\D=M
+                        \\@R13
+                        \\A=M
+                        \\M=D
+                        \\
+                    ;
+                    const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
+                    const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], template, .{ value, pAddr });
+                    self.bufferLength += buf.len;
+                } else {
+                    const output =
+                        \\@SP
+                        \\AM=M-1
+                        \\D=M
+                        \\@{d}
+                        \\M=D
+                        \\
+                    ;
+                    const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{addrOffset});
+                    self.bufferLength += buf.len;
+                }
             },
             else => {
                 return;
