@@ -1,0 +1,7 @@
+sp:SP
+local:LCL
+argument:ARG
+this:THIS
+that:THAT
+constant:SP
+temp:TEMP

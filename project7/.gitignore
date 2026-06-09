@@ -1,0 +1,6 @@
+*.hack
+*.asm
+*~
+
+zig-out
+.zig-cache

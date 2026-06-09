@@ -21,14 +21,24 @@ const CommandType = enum {
 pub const Parser = struct {
     const Self = @This();
 
+    allocator: mem.Allocator,
+    buffer: []u8,
     currentCommand: ?[]const u8,
     commands: std.mem.SplitIterator(u8, .scalar),
 
-    pub fn init(input: []const u8) Self {
+    pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
+        const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
+        const bytes_in = try util.readFile(filepath, buffer, io);
         return Self{
+            .allocator = allocator,
+            .buffer = buffer,
             .currentCommand = null,
-            .commands = std.mem.splitScalar(u8, input, '\n'),
+            .commands = std.mem.splitScalar(u8, buffer[0..bytes_in], '\n'),
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.buffer);
     }
 
     pub fn advance(self: *Self) void {
@@ -83,7 +93,7 @@ pub const Parser = struct {
         }
     }
 
-    fn arg0(self: Self) ?[]const u8 {
+    pub fn arg0(self: Self) ?[]const u8 {
         if (self.currentCommand == null) {
             return null;
         }
@@ -124,14 +134,13 @@ pub const Parser = struct {
 };
 
 test "smoke" {
-    const parser = Parser.init("./test/Test.vm");
-    _ = parser;
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
 }
 
 test "advance" {
-    var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
-    var parser = Parser.init(fileBuffer[0..length]);
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
     try testing.expect(parser.currentCommand == null);
     parser.advance();
     try testing.expect(parser.currentCommand != null);
@@ -144,9 +153,8 @@ test "advance" {
 }
 
 test "hasMoreCommands" {
-    var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
-    var parser = Parser.init(fileBuffer[0..length]);
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
     try testing.expect(parser.hasMoreCommands());
     parser.advance();
     try testing.expect(parser.hasMoreCommands());
@@ -159,9 +167,8 @@ test "hasMoreCommands" {
 }
 
 test "commandType" {
-    var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
-    var parser = Parser.init(fileBuffer[0..length]);
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
     parser.advance();
     try testing.expect(parser.commandType() == .C_PUSH);
     parser.advance();
@@ -176,9 +183,8 @@ test "commandType" {
 }
 
 test "arg1" {
-    var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
-    var parser = Parser.init(fileBuffer[0..length]);
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
     parser.advance();
     try testing.expect(mem.eql(u8, parser.arg1().?, "constant"));
     parser.advance();
@@ -193,9 +199,8 @@ test "arg1" {
 }
 
 test "arg2" {
-    var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readFile("./test/Test.vm", &fileBuffer, testing.io);
-    var parser = Parser.init(fileBuffer[0..length]);
+    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    defer parser.deinit();
     parser.advance();
     try testing.expect(mem.eql(u8, parser.arg2().?, "10"));
     parser.advance();
