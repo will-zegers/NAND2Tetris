@@ -14,17 +14,11 @@ const CommandType = enum {
 pub const Parser = struct {
     const Self = @This();
 
-    pcValue: usize,
-    bytesOut: usize,
-    fileLineNumber: usize,
     currentInstruction: ?[]const u8,
     instructions: std.mem.SplitIterator(u8, .scalar),
 
     pub fn init(input: []const u8) !Self {
         return Self{
-            .pcValue = 0,
-            .bytesOut = 0,
-            .fileLineNumber = 0,
             .currentInstruction = null,
             .instructions = std.mem.splitScalar(u8, input, '\n'),
         };

@@ -18,7 +18,12 @@ pub fn main(init: std.process.Init) !void {
         return;
     };
     var it = std.mem.splitScalar(u8, inputPath, '.');
-    const baseName = it.first(); // Get the base name so we have a corresponding .hack file as output
+    var baseName: []const u8 = undefined;
+    var previous: []const u8 = undefined;
+    while (it.peek()) |_| {
+        baseName = previous;
+        previous = it.next().?;
+    }
 
     // Run the assembler
     var assembler = try Assembler.init(inputPath, init.io, init.gpa);
