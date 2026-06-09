@@ -70,7 +70,10 @@ pub const Parser = struct {
             return null;
         }
 
-        if (mem.eql(u8, "add", command.?) or mem.eql(u8, "sub", command.?)) {
+        if (mem.eql(u8, "add", command.?) or mem.eql(u8, "sub", command.?) or mem.eql(u8, "neg", command.?) or
+            mem.eql(u8, "eq", command.?) or mem.eql(u8, "gt", command.?) or mem.eql(u8, "lt", command.?) or
+            mem.eql(u8, "and", command.?) or mem.eql(u8, "or", command.?) or mem.eql(u8, "and", command.?))
+        {
             return .C_ARITHMETIC;
         } else if (mem.eql(u8, "call", command.?)) {
             return .C_CALL;
