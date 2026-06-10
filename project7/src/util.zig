@@ -113,6 +113,5 @@ test "readFile" {
     const filePath = "./test/Test.asm";
     var buffer: [BUFFER_SIZE]u8 = undefined;
     const length = try readFile(filePath, &buffer, testing.io);
-    std.debug.print("{d}\n", .{length});
     try testing.expect(length == 730);
 }

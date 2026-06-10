@@ -42,7 +42,6 @@ pub fn main(init: std.process.Init) !void {
 
     const cwd = std.Io.Dir.cwd();
     const outputFile = try cwd.createFile(init.io, outputPath, .{ .read = false });
-    std.debug.print("{}\n", .{@TypeOf(outputFile)});
     defer outputFile.close(init.io);
     _ = try outputFile.writePositionalAll(init.io, output, 0);
 

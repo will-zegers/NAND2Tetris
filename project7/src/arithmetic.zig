@@ -3,7 +3,7 @@ const testing = std.testing;
 
 const BinaryOp = struct {
     const Self = @This();
-    const prelude =
+    const template =
         \\@SP
         \\AM=M-1
         \\D=M
@@ -20,10 +20,10 @@ const BinaryOp = struct {
         };
     }
 
-    pub fn fmt(self: Self, buffer: []u8) ![]const u8 {
-        return std.fmt.bufPrint(buffer[0..], prelude, .{self.operation}) catch |err| {
-            return err;
-        };
+    pub fn fmt(self: Self, allocator: std.mem.Allocator) ![]u8 {
+        const out = try std.fmt.allocPrint(allocator, template, .{self.operation});
+
+        return out;
     }
 };
 
@@ -44,10 +44,9 @@ const Unary = struct {
         };
     }
 
-    pub fn fmt(self: Self, buffer: []u8) ![]const u8 {
-        return std.fmt.bufPrint(buffer[0..], prelude, .{self.operation}) catch |err| {
-            return err;
-        };
+    pub fn fmt(self: Self, allocator: std.mem.Allocator) ![]u8 {
+        const out = try std.fmt.allocPrint(allocator, prelude, .{self.operation});
+        return out;
     }
 };
 
@@ -84,11 +83,11 @@ const Comparison = struct {
         };
     }
 
-    pub fn fmt(self: Self, buffer: []u8) ![]const u8 {
+    pub fn fmt(self: Self, allocator: std.mem.Allocator) ![]u8 {
         defer index += 1;
-        return std.fmt.bufPrint(buffer[0..], template, .{ index, self.operation, index, index, index }) catch |err| {
-            return err;
-        };
+        const out = try std.fmt.allocPrint(allocator, template, .{ index, self.operation, index, index, index });
+
+        return out;
     }
 };
 

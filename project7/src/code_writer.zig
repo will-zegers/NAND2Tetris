@@ -7,7 +7,6 @@ const Parser = @import("parser.zig").Parser;
 const arithmetic = @import("arithmetic.zig");
 
 const SYMBOL_FILE: []const u8 = "./table/vm_symbol.table";
-const BUFFER_SIZE: usize = 5 * 1024 * 1024;
 const BASE_ADDR_TABLE: []const u8 = "./table/base_addr.table";
 
 pub const CodeWriter = struct {
@@ -16,24 +15,21 @@ pub const CodeWriter = struct {
     allocator: mem.Allocator,
     symbolTable: std.StringHashMap([]const u8),
     baseAddrTable: std.StringHashMap([]const u8),
-    buffer: []u8,
-    bufferLength: usize,
     parser: Parser,
+    instructions: std.ArrayList(u8),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
-        const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
         return Self{
             .allocator = allocator,
-            .buffer = buffer,
+            .instructions = try .initCapacity(allocator, 1024),
             .symbolTable = try util.hashmapFromFile(SYMBOL_FILE, ':', io, allocator),
             .baseAddrTable = try util.hashmapFromFile(BASE_ADDR_TABLE, ':', io, allocator),
-            .bufferLength = 0,
             .parser = try Parser.init(filepath, io, allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        defer self.allocator.free(self.buffer);
+        defer self.instructions.deinit(self.allocator);
         defer self.parser.deinit();
         defer util.freeMap(&self.symbolTable, self.allocator);
         defer util.freeMap(&self.baseAddrTable, self.allocator);
@@ -48,34 +44,35 @@ pub const CodeWriter = struct {
                 try self.writeArithmetic();
             }
         }
-        return self.buffer[0..self.bufferLength];
+        return self.instructions.items;
     }
 
     pub fn writeArithmetic(self: *Self) !void {
         const command = self.parser.arg0().?;
         var buf: []const u8 = undefined;
+        defer self.allocator.free(buf);
         if (mem.eql(u8, "add", command)) {
-            buf = try arithmetic.Add.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.Add.fmt(self.allocator);
         } else if (mem.eql(u8, "sub", command)) {
-            buf = try arithmetic.Sub.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.Sub.fmt(self.allocator);
         } else if (mem.eql(u8, "or", command)) {
-            buf = try arithmetic.Or.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.Or.fmt(self.allocator);
         } else if (mem.eql(u8, "and", command)) {
-            buf = try arithmetic.And.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.And.fmt(self.allocator);
         } else if (mem.eql(u8, "neg", command)) {
-            buf = try arithmetic.Neg.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.Neg.fmt(self.allocator);
         } else if (mem.eql(u8, "not", command)) {
-            buf = try arithmetic.Not.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.Not.fmt(self.allocator);
         } else if (mem.eql(u8, "eq", command)) {
-            buf = try arithmetic.EQ.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.EQ.fmt(self.allocator);
         } else if (mem.eql(u8, "lt", command)) {
-            buf = try arithmetic.LT.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.LT.fmt(self.allocator);
         } else if (mem.eql(u8, "gt", command)) {
-            buf = try arithmetic.GT.fmt(self.buffer[self.bufferLength..]);
+            buf = try arithmetic.GT.fmt(self.allocator);
         } else {
             std.process.fatal("Unknown arithmetic command: {s}\n", .{command});
         }
-        self.bufferLength += buf.len;
+        try self.instructions.appendSlice(self.allocator, buf);
     }
 
     pub fn writePushPop(self: *Self) !void {
@@ -114,8 +111,10 @@ pub const CodeWriter = struct {
                     \\
                 ;
                 const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
-                const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{ prelude, source });
-                self.bufferLength += buf.len;
+                const buf = try std.fmt.allocPrint(self.allocator, output, .{ prelude, source });
+                defer self.allocator.free(buf);
+
+                try self.instructions.appendSlice(self.allocator, buf);
             },
             .C_POP => {
                 if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol)) {
@@ -135,8 +134,10 @@ pub const CodeWriter = struct {
                         \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], template, .{ value, pAddr });
-                    self.bufferLength += buf.len;
+                    const buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
+                    defer self.allocator.free(buf);
+
+                    try self.instructions.appendSlice(self.allocator, buf);
                 } else {
                     const output =
                         \\@SP
@@ -146,8 +147,10 @@ pub const CodeWriter = struct {
                         \\M=D
                         \\
                     ;
-                    const buf = try std.fmt.bufPrint(self.buffer[self.bufferLength..], output, .{addrOffset});
-                    self.bufferLength += buf.len;
+                    const buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
+                    defer self.allocator.free(buf);
+
+                    try self.instructions.appendSlice(self.allocator, buf);
                 }
             },
             else => {
