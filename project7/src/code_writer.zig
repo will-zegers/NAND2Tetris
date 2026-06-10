@@ -82,11 +82,11 @@ pub const CodeWriter = struct {
 
         const baseAddr = self.baseAddrTable.get(symbol).?;
         const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, value, 10);
+
+        var buf: []u8 = undefined;
+        defer self.allocator.free(buf);
         switch (self.parser.commandType().?) {
             .C_PUSH => {
-                var prelude: []u8 = undefined;
-                defer self.allocator.free(prelude);
-
                 if (mem.eql(u8, "THIS", symbol) or (mem.eql(u8, "THAT", symbol))) {
                     const template =
                         \\@{s}
@@ -94,27 +94,30 @@ pub const CodeWriter = struct {
                         \\@{c}
                         \\D=D+M
                         \\A=D
+                        \\D=M
+                        \\@SP
+                        \\A=M
+                        \\M=D
+                        \\@SP
+                        \\M=M+1
+                        \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    prelude = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
+                    buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
                 } else {
-                    prelude = try std.fmt.allocPrint(self.allocator, "@{d}", .{addrOffset});
+                    const template =
+                        \\@{d}
+                        \\D={c}
+                        \\@SP
+                        \\A=M
+                        \\M=D
+                        \\@SP
+                        \\M=M+1
+                        \\
+                    ;
+                    const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
+                    buf = try std.fmt.allocPrint(self.allocator, template, .{ addrOffset, source });
                 }
-                const output =
-                    \\{s}
-                    \\D={c}
-                    \\@SP
-                    \\A=M
-                    \\M=D
-                    \\@SP
-                    \\M=M+1
-                    \\
-                ;
-                const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
-                const buf = try std.fmt.allocPrint(self.allocator, output, .{ prelude, source });
-                defer self.allocator.free(buf);
-
-                try self.instructions.appendSlice(self.allocator, buf);
             },
             .C_POP => {
                 if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol)) {
@@ -134,10 +137,7 @@ pub const CodeWriter = struct {
                         \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    const buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
-                    defer self.allocator.free(buf);
-
-                    try self.instructions.appendSlice(self.allocator, buf);
+                    buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
                 } else {
                     const output =
                         \\@SP
@@ -147,16 +147,14 @@ pub const CodeWriter = struct {
                         \\M=D
                         \\
                     ;
-                    const buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
-                    defer self.allocator.free(buf);
-
-                    try self.instructions.appendSlice(self.allocator, buf);
+                    buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
                 }
             },
             else => {
                 return;
             },
         }
+        try self.instructions.appendSlice(self.allocator, buf);
     }
 };
 
