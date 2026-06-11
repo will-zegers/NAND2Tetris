@@ -101,7 +101,7 @@ test "hashmapFromFile" {
 
 test "hashmapFromFile fail on duplicate keys" {
     const err = hashmapFromFile("./test/test_dupes.table", ':', testing.io, testing.allocator);
-    try testing.expect(err == ParseError.DuplicateKeys);
+    try testing.expectEqual(err, ParseError.DuplicateKeys);
 }
 
 test "freeMap" {
@@ -113,5 +113,5 @@ test "readFile" {
     const filePath = "./test/BasicTest.vm";
     var buffer: [BUFFER_SIZE]u8 = undefined;
     const length = try readFile(filePath, &buffer, testing.io);
-    try testing.expect(length == 535);
+    try testing.expectEqual(length, 535);
 }

@@ -16,7 +16,7 @@ pub const CodeWriter = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
-    instructions: std.ArrayList(u8),
+    instructions: std.ArrayList([]const u8),
     baseAddrTable: std.StringHashMap([]const u8),
     symbolTable: std.StringHashMap([]const u8),
     outputPath: []const u8,
@@ -30,7 +30,7 @@ pub const CodeWriter = struct {
 
         return Self{
             .allocator = allocator,
-            .instructions = try .initCapacity(allocator, 1024),
+            .instructions = try .initCapacity(allocator, 512),
             .symbolTable = symbolTable,
             .baseAddrTable = baseAddrTable,
             .outputPath = undefined,
@@ -38,18 +38,20 @@ pub const CodeWriter = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        for (self.instructions.items) |item| {
+            self.allocator.free(item);
+        }
         defer self.instructions.deinit(self.allocator);
         defer util.freeMap(&self.symbolTable, self.allocator);
         defer util.freeMap(&self.baseAddrTable, self.allocator);
     }
 
-    pub fn setFileName(self: *Self, outputPath: []const u8) !void {
+    pub fn setFileName(self: *Self, outputPath: []const u8) void {
         self.outputPath = outputPath;
     }
 
     pub fn writeArithmetic(self: *Self, operation: []const u8) !void {
         var buf: []const u8 = undefined;
-        defer self.allocator.free(buf);
 
         if (mem.eql(u8, "add", operation)) {
             buf = try arithmetic.Add.fmt(self.allocator);
@@ -72,7 +74,7 @@ pub const CodeWriter = struct {
         } else {
             return CodeWriterError.UnrecognizedArithmeticCommand;
         }
-        try self.instructions.appendSlice(self.allocator, buf);
+        try self.instructions.append(self.allocator, buf);
     }
 
     pub fn writePushPop(self: *Self, commandType: CommandType, location: []const u8, index: []const u8) !void {
@@ -82,7 +84,6 @@ pub const CodeWriter = struct {
         const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, index, 10);
 
         var buf: []u8 = undefined;
-        defer self.allocator.free(buf);
         switch (commandType) {
             .C_PUSH => {
                 if (mem.eql(u8, "THIS", symbol) or (mem.eql(u8, "THAT", symbol))) {
@@ -98,7 +99,6 @@ pub const CodeWriter = struct {
                         \\M=D
                         \\@SP
                         \\M=M+1
-                        \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
                     buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
@@ -111,7 +111,6 @@ pub const CodeWriter = struct {
                         \\M=D
                         \\@SP
                         \\M=M+1
-                        \\
                     ;
                     const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
                     buf = try std.fmt.allocPrint(self.allocator, template, .{ addrOffset, source });
@@ -130,7 +129,6 @@ pub const CodeWriter = struct {
                         \\A=D-M
                         \\D=D-A
                         \\M=D
-                        \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
                     buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
@@ -141,7 +139,6 @@ pub const CodeWriter = struct {
                         \\D=M
                         \\@{d}
                         \\M=D
-                        \\
                     ;
                     buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
                 }
@@ -150,25 +147,94 @@ pub const CodeWriter = struct {
                 return;
             },
         }
-        try self.instructions.appendSlice(self.allocator, buf);
+        try self.instructions.append(self.allocator, buf);
     }
 
     pub fn close(self: *Self, io: std.Io) !void {
         const outputFile = try std.Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
         defer outputFile.close(io);
 
-        try outputFile.writeStreamingAll(io, self.instructions.items);
+        const output = try mem.join(self.allocator, "\n", self.instructions.items);
+        defer self.allocator.free(output);
+
+        try outputFile.writeStreamingAll(io, output);
     }
 };
 
 test "smoke" {
-    var codeWriter = try CodeWriter.init(testing.io, testing.allocator);
-    defer codeWriter.deinit();
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
 
-    try testing.expect(codeWriter.instructions.pop() == null);
+    try testing.expect(cw.instructions.items.len == 0);
 }
 
 test "writePushPop" {
-    var codeWriter = try CodeWriter.init(testing.io, testing.allocator);
-    defer codeWriter.deinit();
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
+
+    try cw.writePushPop(.C_PUSH, "constant", "10");
+    try testing.expectEqual(cw.instructions.items.len, 1);
+    try cw.writePushPop(.C_POP, "local", "0");
+    try testing.expectEqual(cw.instructions.items.len, 2);
+
+    for (cw.instructions.items) |item| {
+        // While not worried about testing the instruction implementation,
+        // POP/PUSH should have at least one reference to 'SP' and should
+        // also be valid memory (i.e. not segfaulting on access)
+        try testing.expect(mem.count(u8, item, "SP") > 0);
+    }
+}
+
+test "writeArithmetic" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
+
+    var instruction: []const u8 = undefined;
+    try cw.writeArithmetic("add");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "D+M") > 0);
+    try cw.writeArithmetic("sub");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "M-D") > 0);
+    try cw.writeArithmetic("or");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "D|M") > 0);
+    try cw.writeArithmetic("and");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "D&M") > 0);
+    try cw.writeArithmetic("neg");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "-M") > 0);
+    try cw.writeArithmetic("not");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "!M") > 0);
+    try cw.writeArithmetic("eq");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "JEQ") > 0);
+    try cw.writeArithmetic("lt");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "JLT") > 0);
+    try cw.writeArithmetic("gt");
+    instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "JGT") > 0);
+}
+
+test "setFileName and close" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
+
+    const filename = "./test/test_output.asm";
+    cw.setFileName(filename);
+    try cw.writePushPop(.C_PUSH, "constant", "42");
+    try cw.writePushPop(.C_PUSH, "constant", "27");
+    try cw.writeArithmetic("add");
+    try cw.close(testing.io);
+
+    const file = try std.Io.Dir.cwd().openFile(testing.io, filename, .{ .mode = .read_only });
+    defer file.close(testing.io);
+    defer std.Io.Dir.cwd().deleteFile(testing.io, filename) catch {
+        std.debug.print("Failed to delete test file: {s}\n", .{filename});
+    };
+
+    try testing.expect(try file.length(testing.io) > 0);
 }

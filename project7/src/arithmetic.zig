@@ -9,7 +9,6 @@ const BinaryOp = struct {
         \\D=M
         \\A=A-1
         \\{s}
-        \\
     ;
 
     operation: []const u8,
@@ -33,7 +32,6 @@ const Unary = struct {
         \\@SP
         \\A=M-1
         \\{s}
-        \\
     ;
 
     operation: []const u8,
@@ -72,7 +70,6 @@ const Comparison = struct {
         \\  A=M-1
         \\  M=-1
         \\(End{c})
-        \\
     ;
 
     operation: []const u8,

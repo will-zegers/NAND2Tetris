@@ -146,7 +146,7 @@ test "smoke" {
 test "advance" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
-    try testing.expect(parser.currentCommand == null);
+    try testing.expectEqual(parser.currentCommand, null);
     parser.advance();
     try testing.expect(parser.currentCommand != null);
     for (0..24) |_| {
@@ -154,7 +154,7 @@ test "advance" {
     }
     try testing.expect(parser.currentCommand != null);
     parser.advance();
-    try testing.expect(parser.currentCommand == null);
+    try testing.expectEqual(parser.currentCommand, null);
 }
 
 test "hasMoreCommands" {
@@ -175,53 +175,53 @@ test "commandType" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
-    try testing.expect(parser.commandType() == .C_PUSH);
+    try testing.expectEqual(parser.commandType(), .C_PUSH);
     parser.advance();
-    try testing.expect(parser.commandType() == .C_POP);
+    try testing.expectEqual(parser.commandType(), .C_POP);
     for (0..15) |_| {
         parser.advance();
     }
-    try testing.expect(parser.commandType() == .C_ARITHMETIC);
+    try testing.expectEqual(parser.commandType(), .C_ARITHMETIC);
     parser.advance();
     parser.advance();
-    try testing.expect(parser.commandType() == .C_ARITHMETIC);
+    try testing.expectEqual(parser.commandType(), .C_ARITHMETIC);
 }
 
 test "arg1" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg1().?, "constant"));
+    try testing.expectEqualStrings(parser.arg1().?, "constant");
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg1().?, "local"));
+    try testing.expectEqualStrings(parser.arg1().?, "local");
     for (0..15) |_| {
         parser.advance();
     }
-    try testing.expect(mem.eql(u8, parser.arg1().?, "add"));
+    try testing.expectEqualStrings(parser.arg1().?, "add");
     parser.advance();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg1().?, "sub"));
+    try testing.expectEqualStrings(parser.arg1().?, "sub");
 }
 
 test "arg2" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "10"));
+    try testing.expectEqualStrings(parser.arg2().?, "10");
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "0"));
-    parser.advance();
-    parser.advance();
-    parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "2"));
+    try testing.expectEqualStrings(parser.arg2().?, "0");
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "6"));
+    try testing.expectEqualStrings(parser.arg2().?, "2");
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expect(mem.eql(u8, parser.arg2().?, "5"));
+    try testing.expectEqualStrings(parser.arg2().?, "6");
+    parser.advance();
+    parser.advance();
+    parser.advance();
+    try testing.expectEqualStrings(parser.arg2().?, "5");
     for (0..6) |_| {
         parser.advance();
     }

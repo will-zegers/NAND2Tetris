@@ -48,10 +48,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     };
     defer codeWriter.deinit();
-    codeWriter.setFileName(outputPath) catch {
-        try stdout.writeStreamingAll(init.io, "Error setting file name for code writer\n");
-        return;
-    };
+    codeWriter.setFileName(outputPath);
 
     while (parser.hasMoreCommands()) {
         parser.advance();
