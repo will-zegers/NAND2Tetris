@@ -126,13 +126,11 @@ pub const CodeWriter = struct {
                         \\D=A
                         \\@{c}
                         \\D=D+M
-                        \\@R13
-                        \\M=D
                         \\@SP
                         \\AM=M-1
-                        \\D=M
-                        \\@R13
-                        \\A=M
+                        \\D=D+M
+                        \\A=D-M
+                        \\D=D-A
                         \\M=D
                         \\
                     ;
