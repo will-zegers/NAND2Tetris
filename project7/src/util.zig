@@ -49,7 +49,7 @@ pub fn readFile(asmFile: []const u8, buffer: []u8, io: std.Io) !usize {
     while (true) {
         const bytesRead = reader.readSliceShort(buffer[totalBytes..]) catch 0;
         if (totalBytes + bytesRead >= BUFFER_SIZE) {
-            std.process.fatal("Input file is too large. Max size is {d} bytes.\n", .{BUFFER_SIZE});
+            return ParseError.FileTooLarge;
         }
         if (bytesRead == 0) {
             break;
@@ -92,14 +92,14 @@ pub fn isWhiteSpace(char: u8) bool {
     return (char == '\t' or char == ' ');
 }
 
-test "hashmapFromFile no duplicates" {
+test "hashmapFromFile" {
     var map = try hashmapFromFile("./test/test.table", ':', testing.io, testing.allocator);
     defer freeMap(&map, testing.allocator);
 
     try testing.expectEqualStrings(map.get("fern").?, "willow");
 }
 
-test "hashmapFromFile fail on duplicates" {
+test "hashmapFromFile fail on duplicate keys" {
     const err = hashmapFromFile("./test/test_dupes.table", ':', testing.io, testing.allocator);
     try testing.expect(err == ParseError.DuplicateKeys);
 }
@@ -110,8 +110,8 @@ test "freeMap" {
 }
 
 test "readFile" {
-    const filePath = "./test/Test.asm";
+    const filePath = "./test/BasicTest.vm";
     var buffer: [BUFFER_SIZE]u8 = undefined;
     const length = try readFile(filePath, &buffer, testing.io);
-    try testing.expect(length == 730);
+    try testing.expect(length == 535);
 }

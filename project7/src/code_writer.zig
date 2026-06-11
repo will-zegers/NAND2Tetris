@@ -13,24 +13,33 @@ pub const CodeWriter = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
-    symbolTable: std.StringHashMap([]const u8),
-    baseAddrTable: std.StringHashMap([]const u8),
     parser: Parser,
     instructions: std.ArrayList(u8),
+    baseAddrTable: std.StringHashMap([]const u8),
+    symbolTable: std.StringHashMap([]const u8),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
+        var parser = try Parser.init(filepath, io, allocator);
+        errdefer parser.deinit();
+
+        var baseAddrTable = try util.hashmapFromFile(BASE_ADDR_TABLE, ':', io, allocator);
+        errdefer util.freeMap(&baseAddrTable, allocator);
+
+        var symbolTable = try util.hashmapFromFile(SYMBOL_FILE, ':', io, allocator);
+        errdefer util.freeMap(&symbolTable, allocator);
+
         return Self{
             .allocator = allocator,
             .instructions = try .initCapacity(allocator, 1024),
-            .symbolTable = try util.hashmapFromFile(SYMBOL_FILE, ':', io, allocator),
-            .baseAddrTable = try util.hashmapFromFile(BASE_ADDR_TABLE, ':', io, allocator),
-            .parser = try Parser.init(filepath, io, allocator),
+            .parser = parser,
+            .symbolTable = symbolTable,
+            .baseAddrTable = baseAddrTable,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        defer self.instructions.deinit(self.allocator);
         defer self.parser.deinit();
+        defer self.instructions.deinit(self.allocator);
         defer util.freeMap(&self.symbolTable, self.allocator);
         defer util.freeMap(&self.baseAddrTable, self.allocator);
     }
@@ -157,12 +166,12 @@ pub const CodeWriter = struct {
 };
 
 test "smoke" {
-    var codeWriter = try CodeWriter.init("./test/Test.vm", testing.io, testing.allocator);
+    var codeWriter = try CodeWriter.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer codeWriter.deinit();
 }
 
 test "writePushPop" {
-    var codeWriter = try CodeWriter.init("./test/Test.vm", testing.io, testing.allocator);
+    var codeWriter = try CodeWriter.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer codeWriter.deinit();
 
     _ = try codeWriter.run();

@@ -27,13 +27,15 @@ pub const Parser = struct {
     commands: std.mem.SplitIterator(u8, .scalar),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
-        const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
-        const bytes_in = try util.readFile(filepath, buffer, io);
+        const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
+
+        // const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
+        // const bytes_in = try util.readFile(filepath, buffer, io);
         return Self{
             .allocator = allocator,
             .buffer = buffer,
             .currentCommand = null,
-            .commands = std.mem.splitScalar(u8, buffer[0..bytes_in], '\n'),
+            .commands = std.mem.splitScalar(u8, buffer, '\n'),
         };
     }
 
@@ -137,12 +139,12 @@ pub const Parser = struct {
 };
 
 test "smoke" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
 }
 
 test "advance" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     try testing.expect(parser.currentCommand == null);
     parser.advance();
@@ -156,7 +158,7 @@ test "advance" {
 }
 
 test "hasMoreCommands" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     try testing.expect(parser.hasMoreCommands());
     parser.advance();
@@ -170,7 +172,7 @@ test "hasMoreCommands" {
 }
 
 test "commandType" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
     try testing.expect(parser.commandType() == .C_PUSH);
@@ -186,7 +188,7 @@ test "commandType" {
 }
 
 test "arg1" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
     try testing.expect(mem.eql(u8, parser.arg1().?, "constant"));
@@ -202,7 +204,7 @@ test "arg1" {
 }
 
 test "arg2" {
-    var parser = try Parser.init("./test/Test.vm", testing.io, testing.allocator);
+    var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
     try testing.expect(mem.eql(u8, parser.arg2().?, "10"));
