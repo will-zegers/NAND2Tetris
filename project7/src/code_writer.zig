@@ -4,24 +4,24 @@ const testing = std.testing;
 
 const util = @import("util.zig");
 const Parser = @import("parser.zig").Parser;
+const CommandType = @import("parser.zig").CommandType;
 const arithmetic = @import("arithmetic.zig");
 
 const SYMBOL_FILE: []const u8 = "./table/vm_symbol.table";
 const BASE_ADDR_TABLE: []const u8 = "./table/base_addr.table";
 
+const CodeWriterError = error{UnrecognizedArithmeticCommand};
+
 pub const CodeWriter = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
-    parser: Parser,
     instructions: std.ArrayList(u8),
     baseAddrTable: std.StringHashMap([]const u8),
     symbolTable: std.StringHashMap([]const u8),
+    outputPath: []const u8,
 
-    pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
-        var parser = try Parser.init(filepath, io, allocator);
-        errdefer parser.deinit();
-
+    pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
         var baseAddrTable = try util.hashmapFromFile(BASE_ADDR_TABLE, ':', io, allocator);
         errdefer util.freeMap(&baseAddrTable, allocator);
 
@@ -31,70 +31,59 @@ pub const CodeWriter = struct {
         return Self{
             .allocator = allocator,
             .instructions = try .initCapacity(allocator, 1024),
-            .parser = parser,
             .symbolTable = symbolTable,
             .baseAddrTable = baseAddrTable,
+            .outputPath = undefined,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        defer self.parser.deinit();
         defer self.instructions.deinit(self.allocator);
         defer util.freeMap(&self.symbolTable, self.allocator);
         defer util.freeMap(&self.baseAddrTable, self.allocator);
     }
 
-    pub fn run(self: *Self) ![]u8 {
-        while (self.parser.hasMoreCommands()) {
-            self.parser.advance();
-            if (self.parser.commandType() == .C_PUSH or self.parser.commandType() == .C_POP) {
-                try self.writePushPop();
-            } else {
-                try self.writeArithmetic();
-            }
-        }
-        return self.instructions.items;
+    pub fn setFileName(self: *Self, outputPath: []const u8) !void {
+        self.outputPath = outputPath;
     }
 
-    pub fn writeArithmetic(self: *Self) !void {
-        const command = self.parser.arg0().?;
+    pub fn writeArithmetic(self: *Self, operation: []const u8) !void {
         var buf: []const u8 = undefined;
         defer self.allocator.free(buf);
-        if (mem.eql(u8, "add", command)) {
+
+        if (mem.eql(u8, "add", operation)) {
             buf = try arithmetic.Add.fmt(self.allocator);
-        } else if (mem.eql(u8, "sub", command)) {
+        } else if (mem.eql(u8, "sub", operation)) {
             buf = try arithmetic.Sub.fmt(self.allocator);
-        } else if (mem.eql(u8, "or", command)) {
+        } else if (mem.eql(u8, "or", operation)) {
             buf = try arithmetic.Or.fmt(self.allocator);
-        } else if (mem.eql(u8, "and", command)) {
+        } else if (mem.eql(u8, "and", operation)) {
             buf = try arithmetic.And.fmt(self.allocator);
-        } else if (mem.eql(u8, "neg", command)) {
+        } else if (mem.eql(u8, "neg", operation)) {
             buf = try arithmetic.Neg.fmt(self.allocator);
-        } else if (mem.eql(u8, "not", command)) {
+        } else if (mem.eql(u8, "not", operation)) {
             buf = try arithmetic.Not.fmt(self.allocator);
-        } else if (mem.eql(u8, "eq", command)) {
+        } else if (mem.eql(u8, "eq", operation)) {
             buf = try arithmetic.EQ.fmt(self.allocator);
-        } else if (mem.eql(u8, "lt", command)) {
+        } else if (mem.eql(u8, "lt", operation)) {
             buf = try arithmetic.LT.fmt(self.allocator);
-        } else if (mem.eql(u8, "gt", command)) {
+        } else if (mem.eql(u8, "gt", operation)) {
             buf = try arithmetic.GT.fmt(self.allocator);
         } else {
-            std.process.fatal("Unknown arithmetic command: {s}\n", .{command});
+            return CodeWriterError.UnrecognizedArithmeticCommand;
         }
         try self.instructions.appendSlice(self.allocator, buf);
     }
 
-    pub fn writePushPop(self: *Self) !void {
-        const location = self.parser.arg1().?;
-        const value = self.parser.arg2().?;
+    pub fn writePushPop(self: *Self, commandType: CommandType, location: []const u8, index: []const u8) !void {
         const symbol = self.symbolTable.get(location).?;
 
         const baseAddr = self.baseAddrTable.get(symbol).?;
-        const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, value, 10);
+        const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, index, 10);
 
         var buf: []u8 = undefined;
         defer self.allocator.free(buf);
-        switch (self.parser.commandType().?) {
+        switch (commandType) {
             .C_PUSH => {
                 if (mem.eql(u8, "THIS", symbol) or (mem.eql(u8, "THAT", symbol))) {
                     const template =
@@ -112,7 +101,7 @@ pub const CodeWriter = struct {
                         \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
+                    buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
                 } else {
                     const template =
                         \\@{d}
@@ -144,7 +133,7 @@ pub const CodeWriter = struct {
                         \\
                     ;
                     const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    buf = try std.fmt.allocPrint(self.allocator, template, .{ value, pAddr });
+                    buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
                 } else {
                     const output =
                         \\@SP
@@ -163,16 +152,23 @@ pub const CodeWriter = struct {
         }
         try self.instructions.appendSlice(self.allocator, buf);
     }
+
+    pub fn close(self: *Self, io: std.Io) !void {
+        const outputFile = try std.Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
+        defer outputFile.close(io);
+
+        try outputFile.writeStreamingAll(io, self.instructions.items);
+    }
 };
 
 test "smoke" {
-    var codeWriter = try CodeWriter.init("./test/BasicTest.vm", testing.io, testing.allocator);
+    var codeWriter = try CodeWriter.init(testing.io, testing.allocator);
     defer codeWriter.deinit();
+
+    try testing.expect(codeWriter.instructions.pop() == null);
 }
 
 test "writePushPop" {
-    var codeWriter = try CodeWriter.init("./test/BasicTest.vm", testing.io, testing.allocator);
+    var codeWriter = try CodeWriter.init(testing.io, testing.allocator);
     defer codeWriter.deinit();
-
-    _ = try codeWriter.run();
 }

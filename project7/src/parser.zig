@@ -6,7 +6,7 @@ const util = @import("util.zig");
 
 const BUFFER_SIZE: usize = 1 * 1024 * 1024;
 
-const CommandType = enum {
+pub const CommandType = enum {
     C_ARITHMETIC,
     C_CALL,
     C_FUNCTION,
