@@ -50,6 +50,33 @@ pub const CodeWriter = struct {
         self.outputPath = outputPath;
     }
 
+    pub fn writeInit(self: *Self) !void {
+        const bootstrap =
+            \\@256
+            \\D=A
+            \\@0
+            \\M=D
+            \\@300
+            \\D=A
+            \\@1
+            \\M=D
+            \\@400
+            \\D=A
+            \\@2
+            \\M=D
+            \\@3000
+            \\D=A
+            \\@3
+            \\M=D
+            \\@3010
+            \\D=A
+            \\@4
+            \\M=D
+            // TODO: Call Sys.init
+        ;
+        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
+    }
+
     pub fn writeArithmetic(self: *Self, operation: []const u8) !void {
         var buf: []const u8 = undefined;
 
@@ -86,7 +113,7 @@ pub const CodeWriter = struct {
         var buf: []u8 = undefined;
         switch (commandType) {
             .C_PUSH => {
-                if (mem.eql(u8, "THIS", symbol) or (mem.eql(u8, "THAT", symbol))) {
+                if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol) or mem.eql(u8, "LOCAL", symbol) or mem.eql(u8, "ARGUMENT", symbol)) {
                     const template =
                         \\@{s}
                         \\D=A
@@ -237,4 +264,16 @@ test "setFileName and close" {
     };
 
     try testing.expect(try file.length(testing.io) > 0);
+}
+
+test "writeInit" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
+
+    try cw.writeInit();
+    const instruction = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, instruction, "@0") > 0);
+    try testing.expect(mem.count(u8, instruction, "@1") > 0);
+    try testing.expect(mem.count(u8, instruction, "@2") > 0);
+    try testing.expect(mem.count(u8, instruction, "@3") > 0);
 }

@@ -2,18 +2,6 @@ const std = @import("std");
 const CodeWriter = @import("./code_writer.zig").CodeWriter;
 const Parser = @import("./parser.zig").Parser;
 
-const CommandType = enum {
-    C_ARITHMETIC,
-    C_CALL,
-    C_FUNCTION,
-    C_GOTO,
-    C_IF,
-    C_LABEL,
-    C_POP,
-    C_PUSH,
-    C_RETURN,
-};
-
 pub fn main(init: std.process.Init) !void {
     const stdout = std.Io.File.stdout();
 
@@ -32,24 +20,31 @@ pub fn main(init: std.process.Init) !void {
     var it = std.mem.splitScalar(u8, inputPath, '.');
     const baseName = it.first(); // Get the base name so we have a corresponding .asm file as output
 
-    // Write out to a .hack file
+    // Output file will have the same base name as the input file but with a .asm extension
     const outputPath = std.fmt.allocPrint(init.gpa, "{s}.asm", .{baseName}) catch unreachable;
     defer init.gpa.free(outputPath);
 
-    // Run the translator
+    //// Run the translator
+    // Parser init
     var parser = Parser.init(inputPath, init.io, init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
         return;
     };
     defer parser.deinit();
 
+    // CodeWriter init
     var codeWriter = CodeWriter.init(init.io, init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
         return;
     };
     defer codeWriter.deinit();
     codeWriter.setFileName(outputPath);
+    codeWriter.writeInit() catch {
+        try stdout.writeStreamingAll(init.io, "Error writing bootstrap code\n");
+        return;
+    };
 
+    // Main translation loop
     while (parser.hasMoreCommands()) {
         parser.advance();
         const commandType = parser.commandType() orelse {
