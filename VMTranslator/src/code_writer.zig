@@ -216,34 +216,24 @@ test "writeArithmetic" {
     var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
-    var instruction: []const u8 = undefined;
     try cw.writeArithmetic("add");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "D+M") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D+M") > 0);
     try cw.writeArithmetic("sub");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "M-D") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "M-D") > 0);
     try cw.writeArithmetic("or");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "D|M") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D|M") > 0);
     try cw.writeArithmetic("and");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "D&M") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D&M") > 0);
     try cw.writeArithmetic("neg");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "-M") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "-M") > 0);
     try cw.writeArithmetic("not");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "!M") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "!M") > 0);
     try cw.writeArithmetic("eq");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "JEQ") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JEQ") > 0);
     try cw.writeArithmetic("lt");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "JLT") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JLT") > 0);
     try cw.writeArithmetic("gt");
-    instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "JGT") > 0);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JGT") > 0);
 }
 
 test "setFileName and close" {
