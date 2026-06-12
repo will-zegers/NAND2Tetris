@@ -3,7 +3,6 @@ const mem = std.mem;
 const testing = std.testing;
 
 const util = @import("util.zig");
-const Parser = @import("parser.zig").Parser;
 const CommandType = @import("parser.zig").CommandType;
 const arithmetic = @import("arithmetic.zig");
 
@@ -127,7 +126,8 @@ pub const CodeWriter = struct {
                         \\@SP
                         \\M=M+1
                     ;
-                    const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
+                    const pAddr: u8 =
+                        if (mem.eql(u8, "LOCAL", symbol)) '1' else if (mem.eql(u8, "ARGUMENT", symbol)) '2' else if (mem.eql(u8, "THIS", symbol)) '3' else '4';
                     buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
                 } else {
                     const template =

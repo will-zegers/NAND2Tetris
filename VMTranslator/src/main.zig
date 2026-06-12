@@ -65,7 +65,7 @@ pub fn main(init: std.process.Init) !void {
                 return;
             };
         } else if (commandType == .C_ARITHMETIC) {
-            const operation = parser.arg0() orelse {
+            const operation = parser.arg1() orelse {
                 try stdout.writeStreamingAll(init.io, "Error parsing command: missing operation\n");
                 return;
             };

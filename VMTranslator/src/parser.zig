@@ -18,41 +18,91 @@ pub const CommandType = enum {
     C_RETURN,
 };
 
+const CommandMap = struct {
+    const Self = @This();
+
+    allocator: mem.Allocator,
+    map: std.StringHashMap(CommandType),
+
+    pub fn init(allocator: mem.Allocator) !Self {
+        var map = std.StringHashMap(CommandType).init(allocator);
+        errdefer map.deinit();
+
+        try map.put("add", .C_ARITHMETIC);
+        try map.put("sub", .C_ARITHMETIC);
+        try map.put("neg", .C_ARITHMETIC);
+        try map.put("eq", .C_ARITHMETIC);
+        try map.put("gt", .C_ARITHMETIC);
+        try map.put("lt", .C_ARITHMETIC);
+        try map.put("and", .C_ARITHMETIC);
+        try map.put("or", .C_ARITHMETIC);
+        try map.put("not", .C_ARITHMETIC);
+        try map.put("call", .C_CALL);
+        try map.put("function", .C_FUNCTION);
+        try map.put("goto", .C_GOTO);
+        try map.put("if", .C_IF);
+        try map.put("label", .C_LABEL);
+        try map.put("pop", .C_POP);
+        try map.put("push", .C_PUSH);
+        try map.put("return", .C_RETURN);
+
+        return Self{ .allocator = allocator, .map = map };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+
+    pub fn get(self: Self, key: []const u8) ?CommandType {
+        return self.map.get(key);
+    }
+};
+
 pub const Parser = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
+    args: [3]?[]const u8,
     buffer: []u8,
-    currentCommand: ?[]const u8,
-    commands: std.mem.SplitIterator(u8, .scalar),
+    commandMap: CommandMap,
+    commands: mem.TokenIterator(u8, .scalar),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
         const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
+        errdefer allocator.free(buffer);
 
-        // const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
-        // const bytes_in = try util.readFile(filepath, buffer, io);
+        const commandMap = try CommandMap.init(allocator);
+        errdefer commandMap.deinit();
+
         return Self{
             .allocator = allocator,
+            .args = [3]?[]const u8{ null, null, null },
             .buffer = buffer,
-            .currentCommand = null,
-            .commands = std.mem.splitScalar(u8, buffer, '\n'),
+            .commandMap = commandMap,
+            .commands = std.mem.tokenizeScalar(u8, buffer, '\n'),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.buffer);
+        self.commandMap.deinit();
     }
 
     pub fn advance(self: *Self) void {
         while (self.commands.next()) |next| {
             const command = util.trim(next);
-            if (std.mem.startsWith(u8, command, "//") or next.len == 0) {
+            if (std.mem.startsWith(u8, command, "//")) {
                 continue;
             }
-            self.currentCommand = command;
+            var currentCommand = mem.tokenizeScalar(u8, next, ' ');
+            self.args = [3]?[]const u8{
+                currentCommand.next(),
+                currentCommand.next(),
+                currentCommand.next(),
+            };
             return;
         }
-        self.currentCommand = null;
+        self.args = [3]?[]const u8{ null, null, null };
     }
 
     pub fn hasMoreCommands(self: *Self) bool {
@@ -67,71 +117,23 @@ pub const Parser = struct {
     }
 
     pub fn commandType(self: Self) ?CommandType {
-        const command = self.arg0();
-        if (command == null) {
-            return null;
-        }
+        const command = self.args[0] orelse return null;
 
-        if (mem.eql(u8, "add", command.?) or mem.eql(u8, "sub", command.?) or mem.eql(u8, "neg", command.?) or
-            mem.eql(u8, "eq", command.?) or mem.eql(u8, "gt", command.?) or mem.eql(u8, "lt", command.?) or
-            mem.eql(u8, "and", command.?) or mem.eql(u8, "or", command.?) or mem.eql(u8, "and", command.?))
-        {
-            return .C_ARITHMETIC;
-        } else if (mem.eql(u8, "call", command.?)) {
-            return .C_CALL;
-        } else if (mem.eql(u8, "function", command.?)) {
-            return .C_FUNCTION;
-        } else if (mem.eql(u8, "goto", command.?)) {
-            return .C_GOTO;
-        } else if (mem.eql(u8, "if", command.?)) {
-            return .C_IF;
-        } else if (mem.eql(u8, "label", command.?)) {
-            return .C_LABEL;
-        } else if (mem.eql(u8, "pop", command.?)) {
-            return .C_POP;
-        } else if (mem.eql(u8, "push", command.?)) {
-            return .C_PUSH;
-        } else if (mem.eql(u8, "return", command.?)) {
-            return .C_RETURN;
-        } else {
-            return null;
-        }
-    }
-
-    pub fn arg0(self: Self) ?[]const u8 {
-        if (self.currentCommand == null) {
-            return null;
-        }
-
-        var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
-        return command.first();
+        return self.commandMap.get(command);
     }
 
     pub fn arg1(self: Self) ?[]const u8 {
-        if (self.currentCommand == null) {
-            return null;
-        }
-
-        var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
         if (self.commandType() == .C_ARITHMETIC) {
-            return command.first();
+            return self.args[0];
         } else {
-            _ = command.next();
-            return command.next();
+            return self.args[1];
         }
     }
 
     pub fn arg2(self: Self) ?[]const u8 {
-        if (self.currentCommand == null) {
-            return null;
-        }
-
         switch (self.commandType().?) {
             .C_CALL, .C_FUNCTION, .C_POP, .C_PUSH => {
-                var command = mem.splitScalar(u8, self.currentCommand.?, ' ');
-                _ = command.next();
-                _ = command.next();
-                return command.next();
+                return self.args[2];
             },
             else => return null,
         }
@@ -146,15 +148,15 @@ test "smoke" {
 test "advance" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
-    try testing.expectEqual(parser.currentCommand, null);
+    try testing.expectEqual(parser.args[0], null);
     parser.advance();
-    try testing.expect(parser.currentCommand != null);
+    try testing.expect(parser.args[0] != null);
     for (0..24) |_| {
         parser.advance();
     }
-    try testing.expect(parser.currentCommand != null);
+    try testing.expect(parser.args[0] != null);
     parser.advance();
-    try testing.expectEqual(parser.currentCommand, null);
+    try testing.expectEqual(parser.args[0], null);
 }
 
 test "hasMoreCommands" {
