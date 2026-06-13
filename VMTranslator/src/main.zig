@@ -33,7 +33,7 @@ pub fn main(init: std.process.Init) !void {
     defer parser.deinit();
 
     // CodeWriter init
-    var codeWriter = CodeWriter.init(init.io, init.gpa) catch {
+    var codeWriter = CodeWriter.init(init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
         return;
     };
@@ -51,25 +51,22 @@ pub fn main(init: std.process.Init) !void {
             try stdout.writeStreamingAll(init.io, "Error parsing command: unrecognized command type\n");
             return;
         };
+
+        const arg1 = parser.arg1() orelse {
+            try stdout.writeStreamingAll(init.io, "Error parsing command: missing location\n");
+            return;
+        };
         if (commandType == .C_PUSH or commandType == .C_POP) {
-            const location = parser.arg1() orelse {
-                try stdout.writeStreamingAll(init.io, "Error parsing command: missing location\n");
-                return;
-            };
             const index = parser.arg2() orelse {
                 try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
                 return;
             };
-            codeWriter.writePushPop(commandType, location, index) catch {
+            codeWriter.writePushPop(commandType, arg1.segment, index) catch {
                 try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
                 return;
             };
         } else if (commandType == .C_ARITHMETIC) {
-            const operation = parser.arg1() orelse {
-                try stdout.writeStreamingAll(init.io, "Error parsing command: missing operation\n");
-                return;
-            };
-            codeWriter.writeArithmetic(operation) catch {
+            codeWriter.writeArithmetic(arg1.operation) catch {
                 try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
                 return;
             };

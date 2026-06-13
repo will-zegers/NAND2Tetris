@@ -1,9 +1,0 @@
-sp:SP
-local:LCL
-argument:ARG
-this:THIS
-that:THAT
-constant:CONSTANT
-temp:TEMP
-static:STATIC
-pointer:POINTER

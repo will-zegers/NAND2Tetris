@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
+const StringHashMap = std.StringHashMap;
 
 const util = @import("util.zig");
 
@@ -58,6 +59,95 @@ const CommandMap = struct {
     }
 };
 
+pub const ArithmeticOperation = enum {
+    Add,
+    Sub,
+    And,
+    Or,
+    Neg,
+    Not,
+    Eq,
+    Lt,
+    Gt,
+};
+
+const OperationMap = struct {
+    const Self = @This();
+
+    map: StringHashMap(ArithmeticOperation),
+
+    pub fn init(allocator: mem.Allocator) !Self {
+        var map = StringHashMap(ArithmeticOperation).init(allocator);
+        errdefer map.deinit();
+
+        try map.put("add", .Add);
+        try map.put("sub", .Sub);
+        try map.put("and", .And);
+        try map.put("or", .Or);
+        try map.put("neg", .Neg);
+        try map.put("not", .Not);
+        try map.put("eq", .Eq);
+        try map.put("lt", .Lt);
+        try map.put("gt", .Gt);
+
+        return Self{ .map = map };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+
+    pub fn get(self: Self, key: []const u8) ?ArithmeticOperation {
+        return self.map.get(key);
+    }
+};
+
+pub const Segment = enum {
+    LCL,
+    ARG,
+    Pointer,
+    This,
+    That,
+    Temp,
+    Static,
+    Constant,
+};
+
+const SegmentMap = struct {
+    const Self = @This();
+
+    map: StringHashMap(Segment),
+
+    pub fn init(allocator: mem.Allocator) !Self {
+        var map = StringHashMap(Segment).init(allocator);
+        errdefer map.deinit();
+
+        try map.put("local", .LCL);
+        try map.put("argument", .ARG);
+        try map.put("pointer", .Pointer);
+        try map.put("this", .This);
+        try map.put("that", .That);
+        try map.put("temp", .Temp);
+        try map.put("static", .Static);
+        try map.put("constant", .Constant);
+
+        return Self{ .map = map };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+
+    pub fn get(self: Self, key: []const u8) ?Segment {
+        return self.map.get(key);
+    }
+};
+
+pub const Arg1 = union {
+    operation: ArithmeticOperation,
+    segment: Segment,
+};
+
 pub const Parser = struct {
     const Self = @This();
 
@@ -65,20 +155,30 @@ pub const Parser = struct {
     args: [3]?[]const u8,
     buffer: []u8,
     commandMap: CommandMap,
+    operationMap: OperationMap,
+    segmentMap: SegmentMap,
     commands: mem.TokenIterator(u8, .scalar),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
         const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
         errdefer allocator.free(buffer);
 
-        const commandMap = try CommandMap.init(allocator);
+        var commandMap = try CommandMap.init(allocator);
         errdefer commandMap.deinit();
+
+        var operationMap = try OperationMap.init(allocator);
+        errdefer operationMap.deinit();
+
+        var segmentMap = try SegmentMap.init(allocator);
+        errdefer segmentMap.deinit();
 
         return Self{
             .allocator = allocator,
             .args = [3]?[]const u8{ null, null, null },
             .buffer = buffer,
             .commandMap = commandMap,
+            .operationMap = operationMap,
+            .segmentMap = segmentMap,
             .commands = std.mem.tokenizeScalar(u8, buffer, '\n'),
         };
     }
@@ -86,6 +186,8 @@ pub const Parser = struct {
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.buffer);
         self.commandMap.deinit();
+        self.operationMap.deinit();
+        self.segmentMap.deinit();
     }
 
     pub fn advance(self: *Self) void {
@@ -122,11 +224,15 @@ pub const Parser = struct {
         return self.commandMap.get(command);
     }
 
-    pub fn arg1(self: Self) ?[]const u8 {
+    pub fn arg1(self: Self) ?Arg1 {
         if (self.commandType() == .C_ARITHMETIC) {
-            return self.args[0];
+            return Arg1{
+                .operation = self.operationMap.get(self.args[0].?).?,
+            };
         } else {
-            return self.args[1];
+            return Arg1{
+                .segment = self.segmentMap.get(self.args[1].?).?,
+            };
         }
     }
 
@@ -193,16 +299,16 @@ test "arg1" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
-    try testing.expectEqualStrings(parser.arg1().?, "constant");
+    try testing.expectEqual(parser.arg1().?.segment, .Constant);
     parser.advance();
-    try testing.expectEqualStrings(parser.arg1().?, "local");
+    try testing.expectEqual(parser.arg1().?.segment, .LCL);
     for (0..15) |_| {
         parser.advance();
     }
-    try testing.expectEqualStrings(parser.arg1().?, "add");
+    try testing.expectEqual(parser.arg1().?.operation, .Add);
     parser.advance();
     parser.advance();
-    try testing.expectEqualStrings(parser.arg1().?, "sub");
+    try testing.expectEqual(parser.arg1().?.operation, .Sub);
 }
 
 test "arg2" {

@@ -1,36 +1,59 @@
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
+const AutoHashMap = std.AutoHashMap;
 
 const util = @import("util.zig");
 const CommandType = @import("parser.zig").CommandType;
 const arithmetic = @import("arithmetic.zig");
+const ArithmeticOperation = @import("parser.zig").ArithmeticOperation;
+const Segment = @import("parser.zig").Segment;
 
 const SYMBOL_FILE: []const u8 = "./table/vm_symbol.table";
 const BASE_ADDR_TABLE: []const u8 = "./table/base_addr.table";
 
 const CodeWriterError = error{UnrecognizedArithmeticCommand};
 
+const BaseAddressMap = struct {
+    const Self = @This();
+
+    map: AutoHashMap(Segment, u16),
+
+    pub fn init(allocator: mem.Allocator) !Self {
+        var map = AutoHashMap(Segment, u16).init(allocator);
+        errdefer map.deinit();
+
+        try map.put(.Constant, 0);
+        try map.put(.Temp, 5);
+        try map.put(.Static, 16);
+
+        return Self{ .map = map };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+
+    pub fn get(self: Self, key: Segment) ?u16 {
+        return self.map.get(key);
+    }
+};
+
 pub const CodeWriter = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
     instructions: std.ArrayList([]const u8),
-    baseAddrTable: std.StringHashMap([]const u8),
-    symbolTable: std.StringHashMap([]const u8),
+    baseAddrTable: BaseAddressMap,
     outputPath: []const u8,
 
-    pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
-        var baseAddrTable = try util.hashmapFromFile(BASE_ADDR_TABLE, ':', io, allocator);
-        errdefer util.freeMap(&baseAddrTable, allocator);
-
-        var symbolTable = try util.hashmapFromFile(SYMBOL_FILE, ':', io, allocator);
-        errdefer util.freeMap(&symbolTable, allocator);
+    pub fn init(allocator: mem.Allocator) !Self {
+        var baseAddrTable = try BaseAddressMap.init(allocator);
+        errdefer baseAddrTable.deinit();
 
         return Self{
             .allocator = allocator,
             .instructions = try .initCapacity(allocator, 512),
-            .symbolTable = symbolTable,
             .baseAddrTable = baseAddrTable,
             .outputPath = undefined,
         };
@@ -41,8 +64,7 @@ pub const CodeWriter = struct {
             self.allocator.free(item);
         }
         defer self.instructions.deinit(self.allocator);
-        defer util.freeMap(&self.symbolTable, self.allocator);
-        defer util.freeMap(&self.baseAddrTable, self.allocator);
+        defer self.baseAddrTable.deinit();
     }
 
     pub fn setFileName(self: *Self, outputPath: []const u8) void {
@@ -76,98 +98,105 @@ pub const CodeWriter = struct {
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
     }
 
-    pub fn writeArithmetic(self: *Self, operation: []const u8) !void {
-        var buf: []const u8 = undefined;
+    pub fn writeArithmetic(self: *Self, operation: ArithmeticOperation) !void {
+        const buf: []const u8 = switch (operation) {
+            .Add => try arithmetic.Add.fmt(self.allocator),
+            .Sub => try arithmetic.Sub.fmt(self.allocator),
+            .And => try arithmetic.And.fmt(self.allocator),
+            .Or => try arithmetic.Or.fmt(self.allocator),
+            .Neg => try arithmetic.Neg.fmt(self.allocator),
+            .Not => try arithmetic.Not.fmt(self.allocator),
+            .Eq => try arithmetic.EQ.fmt(self.allocator),
+            .Lt => try arithmetic.LT.fmt(self.allocator),
+            .Gt => try arithmetic.GT.fmt(self.allocator),
+        };
 
-        if (mem.eql(u8, "add", operation)) {
-            buf = try arithmetic.Add.fmt(self.allocator);
-        } else if (mem.eql(u8, "sub", operation)) {
-            buf = try arithmetic.Sub.fmt(self.allocator);
-        } else if (mem.eql(u8, "or", operation)) {
-            buf = try arithmetic.Or.fmt(self.allocator);
-        } else if (mem.eql(u8, "and", operation)) {
-            buf = try arithmetic.And.fmt(self.allocator);
-        } else if (mem.eql(u8, "neg", operation)) {
-            buf = try arithmetic.Neg.fmt(self.allocator);
-        } else if (mem.eql(u8, "not", operation)) {
-            buf = try arithmetic.Not.fmt(self.allocator);
-        } else if (mem.eql(u8, "eq", operation)) {
-            buf = try arithmetic.EQ.fmt(self.allocator);
-        } else if (mem.eql(u8, "lt", operation)) {
-            buf = try arithmetic.LT.fmt(self.allocator);
-        } else if (mem.eql(u8, "gt", operation)) {
-            buf = try arithmetic.GT.fmt(self.allocator);
-        } else {
-            return CodeWriterError.UnrecognizedArithmeticCommand;
-        }
         try self.instructions.append(self.allocator, buf);
     }
 
-    pub fn writePushPop(self: *Self, commandType: CommandType, location: []const u8, index: []const u8) !void {
-        const symbol = self.symbolTable.get(location).?;
-
-        const baseAddr = self.baseAddrTable.get(symbol).?;
-        const addrOffset = try std.fmt.parseInt(usize, baseAddr, 10) + try std.fmt.parseInt(usize, index, 10);
-
+    pub fn writePushPop(self: *Self, commandType: CommandType, segment: Segment, index: []const u8) !void {
         var buf: []u8 = undefined;
         switch (commandType) {
             .C_PUSH => {
-                if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol) or mem.eql(u8, "LOCAL", symbol) or mem.eql(u8, "ARGUMENT", symbol)) {
-                    const template =
-                        \\@{s}
-                        \\D=A
-                        \\@{c}
-                        \\D=D+M
-                        \\A=D
-                        \\D=M
-                        \\@SP
-                        \\A=M
-                        \\M=D
-                        \\@SP
-                        \\M=M+1
-                    ;
-                    const pAddr: u8 =
-                        if (mem.eql(u8, "LOCAL", symbol)) '1' else if (mem.eql(u8, "ARGUMENT", symbol)) '2' else if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
-                } else {
-                    const template =
-                        \\@{d}
-                        \\D={c}
-                        \\@SP
-                        \\A=M
-                        \\M=D
-                        \\@SP
-                        \\M=M+1
-                    ;
-                    const source: u8 = if (mem.eql(u8, "CONSTANT", symbol)) 'A' else 'M';
-                    buf = try std.fmt.allocPrint(self.allocator, template, .{ addrOffset, source });
+                switch (segment) {
+                    .LCL, .ARG, .This, .That, .Pointer => {
+                        const template =
+                            \\@{s}
+                            \\D=A
+                            \\@{c}
+                            \\D=D+M
+                            \\A=D
+                            \\D=M
+                            \\@SP
+                            \\A=M
+                            \\M=D
+                            \\@SP
+                            \\M=M+1
+                        ;
+                        const pAddr: u8 = switch (segment) {
+                            .LCL => '1',
+                            .ARG => '2',
+                            .This, .Pointer => '3',
+                            .That => '4',
+                            else => unreachable,
+                        };
+                        buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
+                    },
+                    else => {
+                        const baseAddr = self.baseAddrTable.get(segment).?;
+                        const addrOffset = baseAddr + try std.fmt.parseInt(usize, index, 10);
+
+                        const template =
+                            \\@{d}
+                            \\D={c}
+                            \\@SP
+                            \\A=M
+                            \\M=D
+                            \\@SP
+                            \\M=M+1
+                        ;
+                        const source: u8 = if (segment == .Constant) 'A' else 'M';
+                        buf = try std.fmt.allocPrint(self.allocator, template, .{ addrOffset, source });
+                    },
                 }
             },
             .C_POP => {
-                if (mem.eql(u8, "THIS", symbol) or mem.eql(u8, "THAT", symbol)) {
-                    const template =
-                        \\@{s}
-                        \\D=A
-                        \\@{c}
-                        \\D=D+M
-                        \\@SP
-                        \\AM=M-1
-                        \\D=D+M
-                        \\A=D-M
-                        \\D=D-A
-                        \\M=D
-                    ;
-                    const pAddr: u8 = if (mem.eql(u8, "THIS", symbol)) '3' else '4';
-                    buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
-                } else {
-                    const output =
-                        \\@SP
-                        \\AM=M-1
-                        \\D=M
-                        \\@{d}
-                        \\M=D
-                    ;
-                    buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
+                switch (segment) {
+                    .LCL, .ARG, .This, .That, .Pointer => {
+                        const template =
+                            \\@{s}
+                            \\D=A
+                            \\@{c}
+                            \\D=D+M
+                            \\@SP
+                            \\AM=M-1
+                            \\D=D+M
+                            \\A=D-M
+                            \\D=D-A
+                            \\M=D
+                        ;
+                        const pAddr: u8 = switch (segment) {
+                            .LCL => '1',
+                            .ARG => '2',
+                            .This, .Pointer => '3',
+                            .That => '4',
+                            else => unreachable,
+                        };
+                        buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
+                    },
+                    else => {
+                        const baseAddr = self.baseAddrTable.get(segment).?;
+                        const addrOffset = baseAddr + try std.fmt.parseInt(usize, index, 10);
+
+                        const output =
+                            \\@SP
+                            \\AM=M-1
+                            \\D=M
+                            \\@{d}
+                            \\M=D
+                        ;
+                        buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
+                    },
                 }
             },
             else => {
@@ -189,19 +218,19 @@ pub const CodeWriter = struct {
 };
 
 test "smoke" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
     try testing.expect(cw.instructions.items.len == 0);
 }
 
 test "writePushPop" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
-    try cw.writePushPop(.C_PUSH, "constant", "10");
+    try cw.writePushPop(.C_PUSH, .Constant, "10");
     try testing.expectEqual(cw.instructions.items.len, 1);
-    try cw.writePushPop(.C_POP, "local", "0");
+    try cw.writePushPop(.C_POP, .LCL, "0");
     try testing.expectEqual(cw.instructions.items.len, 2);
 
     for (cw.instructions.items) |item| {
@@ -213,38 +242,38 @@ test "writePushPop" {
 }
 
 test "writeArithmetic" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
-    try cw.writeArithmetic("add");
+    try cw.writeArithmetic(.Add);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D+M") > 0);
-    try cw.writeArithmetic("sub");
+    try cw.writeArithmetic(.Sub);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "M-D") > 0);
-    try cw.writeArithmetic("or");
-    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D|M") > 0);
-    try cw.writeArithmetic("and");
+    try cw.writeArithmetic(.And);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D&M") > 0);
-    try cw.writeArithmetic("neg");
+    try cw.writeArithmetic(.Or);
+    try testing.expect(mem.count(u8, cw.instructions.getLast().?, "D|M") > 0);
+    try cw.writeArithmetic(.Neg);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "-M") > 0);
-    try cw.writeArithmetic("not");
+    try cw.writeArithmetic(.Not);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "!M") > 0);
-    try cw.writeArithmetic("eq");
+    try cw.writeArithmetic(.Eq);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JEQ") > 0);
-    try cw.writeArithmetic("lt");
+    try cw.writeArithmetic(.Lt);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JLT") > 0);
-    try cw.writeArithmetic("gt");
+    try cw.writeArithmetic(.Gt);
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JGT") > 0);
 }
 
 test "setFileName and close" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
     const filename = "./test/test_output.asm";
     cw.setFileName(filename);
-    try cw.writePushPop(.C_PUSH, "constant", "42");
-    try cw.writePushPop(.C_PUSH, "constant", "27");
-    try cw.writeArithmetic("add");
+    try cw.writePushPop(.C_PUSH, .Constant, "42");
+    try cw.writePushPop(.C_PUSH, .Constant, "27");
+    try cw.writeArithmetic(.Add);
     try cw.close(testing.io);
 
     const file = try std.Io.Dir.cwd().openFile(testing.io, filename, .{ .mode = .read_only });
@@ -257,7 +286,7 @@ test "setFileName and close" {
 }
 
 test "writeInit" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
     try cw.writeInit();
