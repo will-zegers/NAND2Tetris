@@ -5,147 +5,21 @@ const StringHashMap = std.StringHashMap;
 
 const util = @import("util.zig");
 
-const BUFFER_SIZE: usize = 1 * 1024 * 1024;
+const mCommand = @import("map/command.zig");
+const CommandType = mCommand.CommandType;
+const CommandTypeMap = mCommand.CommandTypeMap;
 
-pub const CommandType = enum {
-    C_ARITHMETIC,
-    C_CALL,
-    C_FUNCTION,
-    C_GOTO,
-    C_IF,
-    C_LABEL,
-    C_POP,
-    C_PUSH,
-    C_RETURN,
-};
+const mOperation = @import("map/operation.zig");
+const Operation = mOperation.OperationType;
+const OperationTypeMap = mOperation.OperationTypeMap;
 
-const CommandMap = struct {
-    const Self = @This();
-
-    allocator: mem.Allocator,
-    map: std.StringHashMap(CommandType),
-
-    pub fn init(allocator: mem.Allocator) !Self {
-        var map = std.StringHashMap(CommandType).init(allocator);
-        errdefer map.deinit();
-
-        try map.put("add", .C_ARITHMETIC);
-        try map.put("sub", .C_ARITHMETIC);
-        try map.put("neg", .C_ARITHMETIC);
-        try map.put("eq", .C_ARITHMETIC);
-        try map.put("gt", .C_ARITHMETIC);
-        try map.put("lt", .C_ARITHMETIC);
-        try map.put("and", .C_ARITHMETIC);
-        try map.put("or", .C_ARITHMETIC);
-        try map.put("not", .C_ARITHMETIC);
-        try map.put("call", .C_CALL);
-        try map.put("function", .C_FUNCTION);
-        try map.put("goto", .C_GOTO);
-        try map.put("if", .C_IF);
-        try map.put("label", .C_LABEL);
-        try map.put("pop", .C_POP);
-        try map.put("push", .C_PUSH);
-        try map.put("return", .C_RETURN);
-
-        return Self{ .allocator = allocator, .map = map };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.map.deinit();
-    }
-
-    pub fn get(self: Self, key: []const u8) ?CommandType {
-        return self.map.get(key);
-    }
-};
-
-pub const ArithmeticOperation = enum {
-    Add,
-    Sub,
-    And,
-    Or,
-    Neg,
-    Not,
-    Eq,
-    Lt,
-    Gt,
-};
-
-const OperationMap = struct {
-    const Self = @This();
-
-    map: StringHashMap(ArithmeticOperation),
-
-    pub fn init(allocator: mem.Allocator) !Self {
-        var map = StringHashMap(ArithmeticOperation).init(allocator);
-        errdefer map.deinit();
-
-        try map.put("add", .Add);
-        try map.put("sub", .Sub);
-        try map.put("and", .And);
-        try map.put("or", .Or);
-        try map.put("neg", .Neg);
-        try map.put("not", .Not);
-        try map.put("eq", .Eq);
-        try map.put("lt", .Lt);
-        try map.put("gt", .Gt);
-
-        return Self{ .map = map };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.map.deinit();
-    }
-
-    pub fn get(self: Self, key: []const u8) ?ArithmeticOperation {
-        return self.map.get(key);
-    }
-};
-
-pub const Segment = enum {
-    LCL,
-    ARG,
-    Pointer,
-    This,
-    That,
-    Temp,
-    Static,
-    Constant,
-};
-
-const SegmentMap = struct {
-    const Self = @This();
-
-    map: StringHashMap(Segment),
-
-    pub fn init(allocator: mem.Allocator) !Self {
-        var map = StringHashMap(Segment).init(allocator);
-        errdefer map.deinit();
-
-        try map.put("local", .LCL);
-        try map.put("argument", .ARG);
-        try map.put("pointer", .Pointer);
-        try map.put("this", .This);
-        try map.put("that", .That);
-        try map.put("temp", .Temp);
-        try map.put("static", .Static);
-        try map.put("constant", .Constant);
-
-        return Self{ .map = map };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.map.deinit();
-    }
-
-    pub fn get(self: Self, key: []const u8) ?Segment {
-        return self.map.get(key);
-    }
-};
+const mSegment = @import("map/segment.zig");
+const SegmentType = mSegment.SegmentType;
+const SegmentTypeMap = mSegment.SegmentTypeMap;
 
 pub const Arg1 = union {
-    operation: ArithmeticOperation,
-    segment: Segment,
+    operation: Operation,
+    segment: SegmentType,
 };
 
 pub const Parser = struct {
@@ -154,22 +28,22 @@ pub const Parser = struct {
     allocator: mem.Allocator,
     arg: [3]?[]const u8,
     buffer: []u8,
-    commandMap: CommandMap,
-    operationMap: OperationMap,
-    segmentMap: SegmentMap,
+    commandMap: CommandTypeMap,
+    operationMap: OperationTypeMap,
+    segmentMap: SegmentTypeMap,
     commands: mem.TokenIterator(u8, .scalar),
 
     pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
         const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
         errdefer allocator.free(buffer);
 
-        var commandMap = try CommandMap.init(allocator);
+        var commandMap = try CommandTypeMap.init(allocator);
         errdefer commandMap.deinit();
 
-        var operationMap = try OperationMap.init(allocator);
+        var operationMap = try OperationTypeMap.init(allocator);
         errdefer operationMap.deinit();
 
-        var segmentMap = try SegmentMap.init(allocator);
+        var segmentMap = try SegmentTypeMap.init(allocator);
         errdefer segmentMap.deinit();
 
         return Self{

@@ -4,40 +4,20 @@ const testing = std.testing;
 const AutoHashMap = std.AutoHashMap;
 
 const util = @import("util.zig");
-const CommandType = @import("parser.zig").CommandType;
+
 const arithmetic = @import("arithmetic.zig");
-const ArithmeticOperation = @import("parser.zig").ArithmeticOperation;
-const Segment = @import("parser.zig").Segment;
 
-const SYMBOL_FILE: []const u8 = "./table/vm_symbol.table";
-const BASE_ADDR_TABLE: []const u8 = "./table/base_addr.table";
+const mAddress = @import("map/address.zig");
+const BaseAddressMap = mAddress.BaseAddressMap;
 
-const CodeWriterError = error{UnrecognizedArithmeticCommand};
+const mCommand = @import("map/command.zig");
+const CommandType = mCommand.CommandType;
 
-const BaseAddressMap = struct {
-    const Self = @This();
+const mOperation = @import("map/operation.zig");
+const OperationType = mOperation.OperationType;
 
-    map: AutoHashMap(Segment, u16),
-
-    pub fn init(allocator: mem.Allocator) !Self {
-        var map = AutoHashMap(Segment, u16).init(allocator);
-        errdefer map.deinit();
-
-        try map.put(.Constant, 0);
-        try map.put(.Temp, 5);
-        try map.put(.Static, 16);
-
-        return Self{ .map = map };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.map.deinit();
-    }
-
-    pub fn get(self: Self, key: Segment) ?u16 {
-        return self.map.get(key);
-    }
-};
+const mSegment = @import("map/segment.zig");
+const SegmentType = mSegment.SegmentType;
 
 pub const CodeWriter = struct {
     const Self = @This();
@@ -98,7 +78,7 @@ pub const CodeWriter = struct {
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
     }
 
-    pub fn writeArithmetic(self: *Self, operation: ArithmeticOperation) !void {
+    pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
             .Add => try arithmetic.Add.fmt(self.allocator),
             .Sub => try arithmetic.Sub.fmt(self.allocator),
@@ -114,7 +94,7 @@ pub const CodeWriter = struct {
         try self.instructions.append(self.allocator, buf);
     }
 
-    pub fn writePushPop(self: *Self, commandType: CommandType, segment: Segment, index: u16) !void {
+    pub fn writePushPop(self: *Self, commandType: CommandType, segment: SegmentType, index: u16) !void {
         var buf: []u8 = undefined;
         switch (commandType) {
             .C_PUSH => {
