@@ -114,14 +114,14 @@ pub const CodeWriter = struct {
         try self.instructions.append(self.allocator, buf);
     }
 
-    pub fn writePushPop(self: *Self, commandType: CommandType, segment: Segment, index: []const u8) !void {
+    pub fn writePushPop(self: *Self, commandType: CommandType, segment: Segment, index: u16) !void {
         var buf: []u8 = undefined;
         switch (commandType) {
             .C_PUSH => {
                 switch (segment) {
                     .LCL, .ARG, .This, .That, .Pointer => {
                         const template =
-                            \\@{s}
+                            \\@{d}
                             \\D=A
                             \\@{c}
                             \\D=D+M
@@ -144,7 +144,7 @@ pub const CodeWriter = struct {
                     },
                     else => {
                         const baseAddr = self.baseAddrTable.get(segment).?;
-                        const addrOffset = baseAddr + try std.fmt.parseInt(usize, index, 10);
+                        const addrOffset = baseAddr + index;
 
                         const template =
                             \\@{d}
@@ -164,7 +164,7 @@ pub const CodeWriter = struct {
                 switch (segment) {
                     .LCL, .ARG, .This, .That, .Pointer => {
                         const template =
-                            \\@{s}
+                            \\@{d}
                             \\D=A
                             \\@{c}
                             \\D=D+M
@@ -186,7 +186,7 @@ pub const CodeWriter = struct {
                     },
                     else => {
                         const baseAddr = self.baseAddrTable.get(segment).?;
-                        const addrOffset = baseAddr + try std.fmt.parseInt(usize, index, 10);
+                        const addrOffset = baseAddr + index;
 
                         const output =
                             \\@SP
@@ -228,9 +228,9 @@ test "writePushPop" {
     var cw = try CodeWriter.init(testing.allocator);
     defer cw.deinit();
 
-    try cw.writePushPop(.C_PUSH, .Constant, "10");
+    try cw.writePushPop(.C_PUSH, .Constant, 10);
     try testing.expectEqual(cw.instructions.items.len, 1);
-    try cw.writePushPop(.C_POP, .LCL, "0");
+    try cw.writePushPop(.C_POP, .LCL, 0);
     try testing.expectEqual(cw.instructions.items.len, 2);
 
     for (cw.instructions.items) |item| {
@@ -271,8 +271,8 @@ test "setFileName and close" {
 
     const filename = "./test/test_output.asm";
     cw.setFileName(filename);
-    try cw.writePushPop(.C_PUSH, .Constant, "42");
-    try cw.writePushPop(.C_PUSH, .Constant, "27");
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
     try cw.close(testing.io);
 

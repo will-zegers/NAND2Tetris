@@ -152,7 +152,7 @@ pub const Parser = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
-    args: [3]?[]const u8,
+    arg: [3]?[]const u8,
     buffer: []u8,
     commandMap: CommandMap,
     operationMap: OperationMap,
@@ -174,7 +174,7 @@ pub const Parser = struct {
 
         return Self{
             .allocator = allocator,
-            .args = [3]?[]const u8{ null, null, null },
+            .arg = [3]?[]const u8{ null, null, null },
             .buffer = buffer,
             .commandMap = commandMap,
             .operationMap = operationMap,
@@ -197,14 +197,14 @@ pub const Parser = struct {
                 continue;
             }
             var currentCommand = mem.tokenizeScalar(u8, next, ' ');
-            self.args = [3]?[]const u8{
+            self.arg = [3]?[]const u8{
                 currentCommand.next(),
                 currentCommand.next(),
                 currentCommand.next(),
             };
             return;
         }
-        self.args = [3]?[]const u8{ null, null, null };
+        self.arg = [3]?[]const u8{ null, null, null };
     }
 
     pub fn hasMoreCommands(self: *Self) bool {
@@ -219,7 +219,7 @@ pub const Parser = struct {
     }
 
     pub fn commandType(self: Self) ?CommandType {
-        const command = self.args[0] orelse return null;
+        const command = self.arg[0] orelse return null;
 
         return self.commandMap.get(command);
     }
@@ -227,22 +227,20 @@ pub const Parser = struct {
     pub fn arg1(self: Self) ?Arg1 {
         if (self.commandType() == .C_ARITHMETIC) {
             return Arg1{
-                .operation = self.operationMap.get(self.args[0].?).?,
+                .operation = self.operationMap.get(self.arg[0].?).?,
             };
         } else {
             return Arg1{
-                .segment = self.segmentMap.get(self.args[1].?).?,
+                .segment = self.segmentMap.get(self.arg[1].?).?,
             };
         }
     }
 
-    pub fn arg2(self: Self) ?[]const u8 {
-        switch (self.commandType().?) {
-            .C_CALL, .C_FUNCTION, .C_POP, .C_PUSH => {
-                return self.args[2];
-            },
-            else => return null,
+    pub fn arg2(self: Self) ?u16 {
+        if (self.arg[2]) |arg| {
+            return std.fmt.parseInt(u16, arg, 10) catch null;
         }
+        return null;
     }
 };
 
@@ -254,15 +252,15 @@ test "smoke" {
 test "advance" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
-    try testing.expectEqual(parser.args[0], null);
+    try testing.expectEqual(parser.arg[0], null);
     parser.advance();
-    try testing.expect(parser.args[0] != null);
+    try testing.expect(parser.arg[0] != null);
     for (0..24) |_| {
         parser.advance();
     }
-    try testing.expect(parser.args[0] != null);
+    try testing.expect(parser.arg[0] != null);
     parser.advance();
-    try testing.expectEqual(parser.args[0], null);
+    try testing.expectEqual(parser.arg[0], null);
 }
 
 test "hasMoreCommands" {
@@ -315,21 +313,21 @@ test "arg2" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
     defer parser.deinit();
     parser.advance();
-    try testing.expectEqualStrings(parser.arg2().?, "10");
+    try testing.expectEqual(parser.arg2().?, 10);
     parser.advance();
-    try testing.expectEqualStrings(parser.arg2().?, "0");
-    parser.advance();
-    parser.advance();
-    parser.advance();
-    try testing.expectEqualStrings(parser.arg2().?, "2");
+    try testing.expectEqual(parser.arg2().?, 0);
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expectEqualStrings(parser.arg2().?, "6");
+    try testing.expectEqual(parser.arg2().?, 2);
     parser.advance();
     parser.advance();
     parser.advance();
-    try testing.expectEqualStrings(parser.arg2().?, "5");
+    try testing.expectEqual(parser.arg2().?, 6);
+    parser.advance();
+    parser.advance();
+    parser.advance();
+    try testing.expectEqual(parser.arg2().?, 5);
     for (0..6) |_| {
         parser.advance();
     }
