@@ -1,11 +1,16 @@
 const std = @import("std");
+const fmt = std.fmt;
 const mem = std.mem;
 const testing = std.testing;
 const AutoHashMap = std.AutoHashMap;
+const Random = std.Random;
 
 const util = @import("util.zig");
 
 const arithmetic = @import("arithmetic.zig");
+const UnaryTemplate = arithmetic.UnaryTemplate;
+const BinaryTemplate = arithmetic.BinaryTemplate;
+const CompareTemplate = arithmetic.CompareTemplate;
 
 const mAddress = @import("map/address.zig");
 const BaseAddressMap = mAddress.BaseAddressMap;
@@ -19,6 +24,8 @@ const OperationType = mOperation.OperationType;
 const mSegment = @import("map/segment.zig");
 const SegmentType = mSegment.SegmentType;
 
+const LABEL_SIZE: usize = 5;
+
 pub const CodeWriter = struct {
     const Self = @This();
 
@@ -26,8 +33,9 @@ pub const CodeWriter = struct {
     instructions: std.ArrayList([]const u8),
     baseAddrTable: BaseAddressMap,
     outputPath: []const u8,
+    rng: Random.IoSource,
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
         var baseAddrTable = try BaseAddressMap.init(allocator);
         errdefer baseAddrTable.deinit();
 
@@ -36,6 +44,7 @@ pub const CodeWriter = struct {
             .instructions = try .initCapacity(allocator, 512),
             .baseAddrTable = baseAddrTable,
             .outputPath = undefined,
+            .rng = .{ .io = io },
         };
     }
 
@@ -80,18 +89,36 @@ pub const CodeWriter = struct {
 
     pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
-            .Add => try arithmetic.Add.fmt(self.allocator),
-            .Sub => try arithmetic.Sub.fmt(self.allocator),
-            .And => try arithmetic.And.fmt(self.allocator),
-            .Or => try arithmetic.Or.fmt(self.allocator),
-            .Neg => try arithmetic.Neg.fmt(self.allocator),
-            .Not => try arithmetic.Not.fmt(self.allocator),
-            .Eq => try arithmetic.EQ.fmt(self.allocator),
-            .Lt => try arithmetic.LT.fmt(self.allocator),
-            .Gt => try arithmetic.GT.fmt(self.allocator),
+            .Add => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D+M"}),
+            .Sub => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=M-D"}),
+            .And => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D&M"}),
+            .Or => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D|M"}),
+            .Neg => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=-M"}),
+            .Not => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=!M"}),
+            .Eq, .Lt, .Gt => |compare| blk: {
+                const label = self.generateLabel();
+                const jumpType = switch (compare) {
+                    .Eq => "JEQ",
+                    .Lt => "JLT",
+                    .Gt => "JGT",
+                    else => unreachable,
+                };
+                break :blk try std.fmt.allocPrint(self.allocator, CompareTemplate, .{ label, jumpType });
+            },
         };
 
         try self.instructions.append(self.allocator, buf);
+    }
+
+    /// Generate a random label to be embbed in the output code
+    fn generateLabel(self: Self) [LABEL_SIZE]u8 {
+        const iRng = self.rng.interface();
+
+        var label = [LABEL_SIZE]u8{ 0, 0, 0, 0, 0 };
+        for (0..LABEL_SIZE) |i| {
+            label[i] = iRng.intRangeAtMost(u8, 'a', 'z');
+        }
+        return label;
     }
 
     pub fn writePushPop(self: *Self, commandType: CommandType, segment: SegmentType, index: u16) !void {
@@ -198,14 +225,14 @@ pub const CodeWriter = struct {
 };
 
 test "smoke" {
-    var cw = try CodeWriter.init(testing.allocator);
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
     try testing.expect(cw.instructions.items.len == 0);
 }
 
 test "writePushPop" {
-    var cw = try CodeWriter.init(testing.allocator);
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
     try cw.writePushPop(.C_PUSH, .Constant, 10);
@@ -222,7 +249,7 @@ test "writePushPop" {
 }
 
 test "writeArithmetic" {
-    var cw = try CodeWriter.init(testing.allocator);
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
     try cw.writeArithmetic(.Add);
@@ -246,7 +273,7 @@ test "writeArithmetic" {
 }
 
 test "setFileName and close" {
-    var cw = try CodeWriter.init(testing.allocator);
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
     const filename = "./test/test_output.asm";
@@ -266,7 +293,7 @@ test "setFileName and close" {
 }
 
 test "writeInit" {
-    var cw = try CodeWriter.init(testing.allocator);
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
     defer cw.deinit();
 
     try cw.writeInit();

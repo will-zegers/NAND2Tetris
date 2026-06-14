@@ -33,7 +33,7 @@ pub fn main(init: std.process.Init) !void {
     defer parser.deinit();
 
     // CodeWriter init
-    var codeWriter = CodeWriter.init(init.gpa) catch {
+    var codeWriter = CodeWriter.init(init.io, init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
         return;
     };
