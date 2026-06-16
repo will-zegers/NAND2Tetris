@@ -15,6 +15,7 @@ pub const BaseAddressMap = struct {
         errdefer map.deinit();
 
         try map.put(.Constant, 0);
+        try map.put(.Pointer, 3);
         try map.put(.Temp, 5);
         try map.put(.Static, 16);
 

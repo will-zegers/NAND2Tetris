@@ -144,7 +144,7 @@ pub const CodeWriter = struct {
         switch (commandType) {
             .C_PUSH => {
                 switch (segment) {
-                    .LCL, .ARG, .This, .That, .Pointer => {
+                    .LCL, .ARG, .This, .That => {
                         const template =
                             \\@{d}
                             \\D=A
@@ -167,7 +167,7 @@ pub const CodeWriter = struct {
                         };
                         buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
                     },
-                    else => {
+                    else => { // .Static, .Temp, .Pointer
                         const baseAddr = self.baseAddrTable.get(segment).?;
                         const addrOffset = baseAddr + index;
 
@@ -187,7 +187,7 @@ pub const CodeWriter = struct {
             },
             .C_POP => {
                 switch (segment) {
-                    .LCL, .ARG, .This, .That, .Pointer => {
+                    .LCL, .ARG, .This, .That => {
                         const template =
                             \\@{d}
                             \\D=A
@@ -209,7 +209,7 @@ pub const CodeWriter = struct {
                         };
                         buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
                     },
-                    else => {
+                    else => { // .Static, .Temp, .Pointer
                         const baseAddr = self.baseAddrTable.get(segment).?;
                         const addrOffset = baseAddr + index;
 
