@@ -1,4 +1,5 @@
 const std = @import("std");
+const process = std.process;
 const CodeWriter = @import("./code_writer.zig").CodeWriter;
 const Parser = @import("./parser.zig").Parser;
 
@@ -28,20 +29,20 @@ pub fn main(init: std.process.Init) !void {
     // Parser init
     var parser = Parser.init(inputPath, init.io, init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
-        return;
+        process.exit(1);
     };
     defer parser.deinit();
 
     // CodeWriter init
     var codeWriter = CodeWriter.init(init.io, init.gpa) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
-        return;
+        process.exit(1);
     };
     defer codeWriter.deinit();
     codeWriter.setFileName(outputPath);
     codeWriter.writeInit() catch {
         try stdout.writeStreamingAll(init.io, "Error writing bootstrap code\n");
-        return;
+        process.exit(1);
     };
 
     // Main translation loop
@@ -49,30 +50,46 @@ pub fn main(init: std.process.Init) !void {
         parser.advance();
         const commandType = parser.commandType() orelse {
             try stdout.writeStreamingAll(init.io, "Error parsing command: unrecognized command type\n");
-            return;
+            process.exit(1);
         };
 
         const arg1 = parser.arg1() orelse {
             try stdout.writeStreamingAll(init.io, "Error parsing command: missing location\n");
-            return;
+            process.exit(1);
         };
-        if (commandType == .C_PUSH or commandType == .C_POP) {
-            const index = parser.arg2() orelse {
-                try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
-                return;
-            };
-            codeWriter.writePushPop(commandType, arg1.segment, index) catch {
-                try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
-                return;
-            };
-        } else if (commandType == .C_ARITHMETIC) {
-            codeWriter.writeArithmetic(arg1.operation) catch {
-                try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
-                return;
-            };
-        } else {
-            try stdout.writeStreamingAll(init.io, "Unsupported command type\n");
-            return;
+        switch (commandType) {
+            .C_PUSH, .C_POP => {
+                const index = parser.arg2() orelse {
+                    try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
+                    process.exit(1);
+                };
+                codeWriter.writePushPop(commandType, arg1.segment, index) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
+                    process.exit(1);
+                };
+            },
+            .C_ARITHMETIC => {
+                codeWriter.writeArithmetic(arg1.operation) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
+                    process.exit(1);
+                };
+            },
+            .C_LABEL => {
+                codeWriter.writeLabel(arg1.label) catch {
+                    try stdout.writeStreamingAll(init.io, "Error creating label\n");
+                    process.exit(1);
+                };
+            },
+            .C_IF => {
+                codeWriter.writeIf(arg1.label) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing if-goto command\n");
+                    process.exit(1);
+                };
+            },
+            else => {
+                try stdout.writeStreamingAll(init.io, "Unsupported command type\n");
+                process.exit(1);
+            },
         }
     }
     codeWriter.close(init.io) catch {

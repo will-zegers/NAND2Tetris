@@ -36,7 +36,7 @@ pub const CommandTypeMap = struct {
         try map.put("call", .C_CALL);
         try map.put("function", .C_FUNCTION);
         try map.put("goto", .C_GOTO);
-        try map.put("if", .C_IF);
+        try map.put("if-goto", .C_IF);
         try map.put("label", .C_LABEL);
         try map.put("pop", .C_POP);
         try map.put("push", .C_PUSH);

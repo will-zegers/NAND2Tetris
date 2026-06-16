@@ -1,9 +1,10 @@
 const std = @import("std");
+const AutoHashMap = std.AutoHashMap;
+const Random = std.Random;
+const StringHashMap = std.StringHashMap;
 const fmt = std.fmt;
 const mem = std.mem;
 const testing = std.testing;
-const AutoHashMap = std.AutoHashMap;
-const Random = std.Random;
 
 const util = @import("util.zig");
 
@@ -26,6 +27,10 @@ const SegmentType = mSegment.SegmentType;
 
 const LABEL_SIZE: usize = 5;
 
+const CodeWriterError = error{
+    UndeclaredGotoLabel,
+};
+
 pub const CodeWriter = struct {
     const Self = @This();
 
@@ -34,6 +39,9 @@ pub const CodeWriter = struct {
     baseAddrTable: BaseAddressMap,
     outputPath: []const u8,
     rng: Random.IoSource,
+    instructionCount: usize,
+    symbolTable: std.StringHashMap(usize),
+    context: []const u8,
 
     pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
         var baseAddrTable = try BaseAddressMap.init(allocator);
@@ -45,15 +53,25 @@ pub const CodeWriter = struct {
             .baseAddrTable = baseAddrTable,
             .outputPath = undefined,
             .rng = .{ .io = io },
+            .instructionCount = 0,
+            .symbolTable = StringHashMap(usize).init(allocator),
+            .context = "main",
         };
     }
 
     pub fn deinit(self: *Self) void {
+        defer self.instructions.deinit(self.allocator);
+        defer self.baseAddrTable.deinit();
+        defer self.symbolTable.deinit();
+
         for (self.instructions.items) |item| {
             self.allocator.free(item);
         }
-        defer self.instructions.deinit(self.allocator);
-        defer self.baseAddrTable.deinit();
+
+        var kit = self.symbolTable.keyIterator();
+        while (kit.next()) |key| {
+            self.allocator.free(key.*);
+        }
     }
 
     pub fn setFileName(self: *Self, outputPath: []const u8) void {
@@ -82,11 +100,10 @@ pub const CodeWriter = struct {
             \\D=A
             \\@4
             \\M=D
-            // TODO: Call Sys.init
         ;
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
+        self.instructionCount += mem.count(u8, bootstrap, "\n") + 1;
     }
-
     pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
             .Add => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D+M"}),
@@ -108,6 +125,7 @@ pub const CodeWriter = struct {
         };
 
         try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(u8, buf, "\n") + 1;
     }
 
     /// Generate a random label to be embbed in the output code
@@ -211,6 +229,48 @@ pub const CodeWriter = struct {
             },
         }
         try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(u8, buf, "\n") + 1;
+    }
+
+    pub fn writeLabel(self: *Self, label: []const u8) !void {
+        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        try self.symbolTable.put(fullLabel, self.instructionCount);
+    }
+
+    pub fn writeGoto(self: *Self, label: []const u8) !void {
+        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        defer self.allocator.free(fullLabel);
+
+        const romAddress = try self.symbolTable.get(fullLabel);
+        const template =
+            \\@{d}
+            \\0;JMP
+        ;
+
+        const buf = try fmt.allocPrint(self.allocator, template, .{romAddress});
+        try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(self.allocator, template, "\n") + 1;
+    }
+
+    pub fn writeIf(self: *Self, label: []const u8) !void {
+        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        defer self.allocator.free(fullLabel);
+
+        const romAddress = self.symbolTable.get(fullLabel) orelse {
+            return CodeWriterError.UndeclaredGotoLabel;
+        };
+        const template =
+            \\@SP
+            \\AM=M-1
+            \\D=M
+            \\@{d}
+            \\D;JNE
+        ;
+
+        const buf = try fmt.allocPrint(self.allocator, template, .{romAddress});
+
+        try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(u8, template, "\n") + 1;
     }
 
     pub fn close(self: *Self, io: std.Io) !void {
@@ -302,4 +362,16 @@ test "writeInit" {
     try testing.expect(mem.count(u8, instruction, "@1") > 0);
     try testing.expect(mem.count(u8, instruction, "@2") > 0);
     try testing.expect(mem.count(u8, instruction, "@3") > 0);
+}
+
+test "writeLabel" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator);
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeLabel("foo");
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+    try testing.expectEqual(cw.symbolTable.get("main$foo"), 20);
 }

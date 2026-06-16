@@ -20,6 +20,7 @@ const SegmentTypeMap = mSegment.SegmentTypeMap;
 pub const Arg1 = union {
     operation: Operation,
     segment: SegmentType,
+    label: []const u8,
 };
 
 pub const Parser = struct {
@@ -99,14 +100,21 @@ pub const Parser = struct {
     }
 
     pub fn arg1(self: Self) ?Arg1 {
-        if (self.commandType() == .C_ARITHMETIC) {
-            return Arg1{
-                .operation = self.operationMap.get(self.arg[0].?).?,
-            };
-        } else {
-            return Arg1{
-                .segment = self.segmentMap.get(self.arg[1].?).?,
-            };
+        switch (self.commandType().?) {
+            .C_ARITHMETIC => {
+                return Arg1{
+                    .operation = self.operationMap.get(self.arg[0].?).?,
+                };
+            },
+            .C_IF, .C_LABEL => {
+                return Arg1{ .label = self.arg[1].? };
+            },
+            .C_PUSH, .C_POP => {
+                return Arg1{
+                    .segment = self.segmentMap.get(self.arg[1].?).?,
+                };
+            },
+            else => return null,
         }
     }
 
