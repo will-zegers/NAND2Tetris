@@ -1,4 +1,5 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
 const AutoHashMap = std.AutoHashMap;
 const Random = std.Random;
 const StringHashMap = std.StringHashMap;
@@ -28,19 +29,26 @@ const SegmentType = mSegment.SegmentType;
 const LABEL_SIZE: usize = 5;
 
 const CodeWriterError = error{
-    UndeclaredGotoLabel,
+    UnresolvedLabel,
+    LabelRedeclaration,
+};
+
+const SymbolReference = struct {
+    index: usize, // instruction index
+    label: []const u8,
 };
 
 pub const CodeWriter = struct {
     const Self = @This();
 
     allocator: mem.Allocator,
-    instructions: std.ArrayList([]const u8),
+    instructions: ArrayList([]const u8),
     baseAddrTable: BaseAddressMap,
     outputPath: []const u8,
     rng: Random.IoSource,
     instructionCount: usize,
-    symbolTable: std.StringHashMap(usize),
+    symbolTable: StringHashMap(usize),
+    symbolReferences: ArrayList(SymbolReference),
     context: []const u8,
 
     pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
@@ -55,12 +63,14 @@ pub const CodeWriter = struct {
             .rng = .{ .io = io },
             .instructionCount = 0,
             .symbolTable = StringHashMap(usize).init(allocator),
+            .symbolReferences = .empty,
             .context = "main",
         };
     }
 
     pub fn deinit(self: *Self) void {
         defer self.instructions.deinit(self.allocator);
+        defer self.symbolReferences.deinit(self.allocator);
         defer self.baseAddrTable.deinit();
         defer self.symbolTable.deinit();
 
@@ -71,6 +81,10 @@ pub const CodeWriter = struct {
         var kit = self.symbolTable.keyIterator();
         while (kit.next()) |key| {
             self.allocator.free(key.*);
+        }
+
+        for (self.symbolReferences.items) |item| {
+            self.allocator.free(item.label);
         }
     }
 
@@ -234,51 +248,80 @@ pub const CodeWriter = struct {
 
     pub fn writeLabel(self: *Self, label: []const u8) !void {
         const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+
+        if (self.symbolTable.get(fullLabel)) |_| {
+            return CodeWriterError.LabelRedeclaration;
+        }
         try self.symbolTable.put(fullLabel, self.instructionCount);
     }
 
     pub fn writeGoto(self: *Self, label: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
-        defer self.allocator.free(fullLabel);
-
-        const romAddress = try self.symbolTable.get(fullLabel);
         const template =
-            \\@{d}
+            \\@{s}
             \\0;JMP
         ;
 
-        const buf = try fmt.allocPrint(self.allocator, template, .{romAddress});
-        try self.instructions.append(self.allocator, buf);
-        self.instructionCount += mem.count(self.allocator, template, "\n") + 1;
+        try self.writeGotoOrIf(label, template);
     }
 
     pub fn writeIf(self: *Self, label: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
-        defer self.allocator.free(fullLabel);
-
-        const romAddress = self.symbolTable.get(fullLabel) orelse {
-            return CodeWriterError.UndeclaredGotoLabel;
-        };
         const template =
             \\@SP
             \\AM=M-1
             \\D=M
-            \\@{d}
+            \\@{s}
             \\D;JNE
         ;
 
-        const buf = try fmt.allocPrint(self.allocator, template, .{romAddress});
+        try self.writeGotoOrIf(label, template);
+    }
 
+    /// Handles the bulk of writing 'goto' and 'if-goto' instructions, and
+    /// depends only on the assembly implementation of either
+    fn writeGotoOrIf(self: *Self, label: []const u8, comptime template: []const u8) !void {
+        // create the fully-qualified label, in the form 'context$label'
+        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        defer self.allocator.free(fullLabel);
+
+        const buf = try fmt.allocPrint(self.allocator, template, .{fullLabel});
         try self.instructions.append(self.allocator, buf);
         self.instructionCount += mem.count(u8, template, "\n") + 1;
+
+        // add this instruction as an entry in symbol references, to be resolved
+        // once all labels have been declared and can be mapped to addresses
+        const entry: SymbolReference = .{ .label = try self.allocator.dupe(u8, fullLabel), .index = self.instructions.items.len - 1 };
+        try self.symbolReferences.append(self.allocator, entry);
+    }
+
+    /// Uses the built list of instructions with symbolic references, and
+    /// uses a lookup to resolve those symbols to addresses in ROM
+    fn resolveSymbols(self: *Self) !void {
+        for (self.symbolReferences.items) |item| {
+            const romAddr = self.symbolTable.get(item.label) orelse {
+                return CodeWriterError.UnresolvedLabel;
+            };
+
+            const template: []const u8 = self.instructions.items[item.index];
+            defer self.allocator.free(template);
+
+            // usize to []const u8
+            const romAddrStr = try fmt.allocPrint(self.allocator, "{d}", .{romAddr});
+            defer self.allocator.free(romAddrStr);
+
+            // replace the label with the actual ROM address
+            const buf = try mem.replaceOwned(u8, self.allocator, template, item.label, romAddrStr);
+            self.instructions.items[item.index] = buf;
+        }
     }
 
     pub fn close(self: *Self, io: std.Io) !void {
-        const outputFile = try std.Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
-        defer outputFile.close(io);
+        try self.resolveSymbols();
 
         const output = try mem.join(self.allocator, "\n", self.instructions.items);
         defer self.allocator.free(output);
+
+        const outputFile = try std.Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
+        defer outputFile.close(io);
 
         try outputFile.writeStreamingAll(io, output);
     }

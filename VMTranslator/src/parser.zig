@@ -106,7 +106,7 @@ pub const Parser = struct {
                     .operation = self.operationMap.get(self.arg[0].?).?,
                 };
             },
-            .C_IF, .C_LABEL => {
+            .C_IF, .C_LABEL, .C_GOTO => {
                 return Arg1{ .label = self.arg[1].? };
             },
             .C_PUSH, .C_POP => {

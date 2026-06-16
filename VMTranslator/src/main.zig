@@ -58,19 +58,21 @@ pub fn main(init: std.process.Init) !void {
             process.exit(1);
         };
         switch (commandType) {
-            .C_PUSH, .C_POP => {
-                const index = parser.arg2() orelse {
-                    try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
-                    process.exit(1);
-                };
-                codeWriter.writePushPop(commandType, arg1.segment, index) catch {
-                    try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
-                    process.exit(1);
-                };
-            },
             .C_ARITHMETIC => {
                 codeWriter.writeArithmetic(arg1.operation) catch {
                     try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
+                    process.exit(1);
+                };
+            },
+            .C_GOTO => {
+                codeWriter.writeGoto(arg1.label) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing goto command\n");
+                    process.exit(1);
+                };
+            },
+            .C_IF => {
+                codeWriter.writeIf(arg1.label) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing if-goto command\n");
                     process.exit(1);
                 };
             },
@@ -80,9 +82,13 @@ pub fn main(init: std.process.Init) !void {
                     process.exit(1);
                 };
             },
-            .C_IF => {
-                codeWriter.writeIf(arg1.label) catch {
-                    try stdout.writeStreamingAll(init.io, "Error writing if-goto command\n");
+            .C_PUSH, .C_POP => {
+                const index = parser.arg2() orelse {
+                    try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
+                    process.exit(1);
+                };
+                codeWriter.writePushPop(commandType, arg1.segment, index) catch {
+                    try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
                     process.exit(1);
                 };
             },
