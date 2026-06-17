@@ -3,8 +3,8 @@ const mem = std.mem;
 const StringHashMap = std.StringHashMap;
 
 pub const SegmentType = enum {
-    LCL,
-    ARG,
+    Local,
+    Argument,
     Pointer,
     This,
     That,
@@ -22,8 +22,8 @@ pub const SegmentTypeMap = struct {
         var map = StringHashMap(SegmentType).init(allocator);
         errdefer map.deinit();
 
-        try map.put("local", .LCL);
-        try map.put("argument", .ARG);
+        try map.put("local", .Local);
+        try map.put("argument", .Argument);
         try map.put("pointer", .Pointer);
         try map.put("this", .This);
         try map.put("that", .That);

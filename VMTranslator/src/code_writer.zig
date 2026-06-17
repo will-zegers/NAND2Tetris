@@ -136,49 +136,58 @@ pub const CodeWriter = struct {
     }
 
     pub fn writePushPop(self: *Self, commandType: CommandType, segment: SegmentType, index: u16) !void {
-        var buf: []u8 = undefined;
         switch (commandType) {
             .C_PUSH => {
-                switch (segment) {
-                    .LCL, .ARG, .This, .That => {
-                        const pAddr: u8 = switch (segment) {
-                            .LCL => '1',
-                            .ARG => '2',
-                            .This, .Pointer => '3',
-                            .That => '4',
-                            else => unreachable,
-                        };
-                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PushVirtual, .{ index, pAddr });
-                    },
-                    else => { // .Static, .Temp, .Pointer
-                        const baseAddr = self.baseAddrTable.get(segment).?;
-                        const addrOffset = baseAddr + index;
-                        const source: u8 = if (segment == .Constant) 'A' else 'M';
-                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PushVirtual, .{ addrOffset, source });
-                    },
-                }
+                try self.writePush(segment, index);
             },
             .C_POP => {
-                switch (segment) {
-                    .LCL, .ARG, .This, .That => {
-                        const pAddr: u8 = switch (segment) {
-                            .LCL => '1',
-                            .ARG => '2',
-                            .This, .Pointer => '3',
-                            .That => '4',
-                            else => unreachable,
-                        };
-                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PopVirtual, .{ index, pAddr });
-                    },
-                    else => { // .Static, .Temp, .Pointer
-                        const baseAddr = self.baseAddrTable.get(segment).?;
-                        const addrOffset = baseAddr + index;
-                        buf = try std.fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
-                    },
-                }
+                try self.writePop(segment, index);
             },
-            else => {
-                return;
+            else => unreachable,
+        }
+    }
+
+    fn writePush(self: *Self, segment: SegmentType, index: usize) !void {
+        var buf: []u8 = undefined;
+        switch (segment) {
+            .Local, .Argument, .This, .That => {
+                const pAddr: u8 = switch (segment) {
+                    .Local => '1',
+                    .Argument => '2',
+                    .This, .Pointer => '3',
+                    .That => '4',
+                    else => unreachable,
+                };
+                buf = try std.fmt.allocPrint(self.allocator, tmpl.PushMemory, .{ index, pAddr });
+            },
+            else => { // .Static, .Temp, .Pointer
+                const baseAddr = self.baseAddrTable.get(segment).?;
+                const addrOffset = baseAddr + index;
+                const source: u8 = if (segment == .Constant) 'A' else 'M';
+                buf = try std.fmt.allocPrint(self.allocator, tmpl.Push, .{ addrOffset, source });
+            },
+        }
+        try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(u8, buf, "\n") + 1;
+    }
+
+    fn writePop(self: *Self, segment: SegmentType, index: usize) !void {
+        var buf: []u8 = undefined;
+        switch (segment) {
+            .Local, .Argument, .This, .That => {
+                const pAddr: u8 = switch (segment) {
+                    .Local => '1',
+                    .Argument => '2',
+                    .This, .Pointer => '3',
+                    .That => '4',
+                    else => unreachable,
+                };
+                buf = try std.fmt.allocPrint(self.allocator, tmpl.PopMemory, .{ index, pAddr });
+            },
+            else => { // .Static, .Temp, .Pointer
+                const baseAddr = self.baseAddrTable.get(segment).?;
+                const addrOffset = baseAddr + index;
+                buf = try std.fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
             },
         }
         try self.instructions.append(self.allocator, buf);
@@ -223,7 +232,7 @@ pub const CodeWriter = struct {
 
         // Initialize 'numLocals' local variables to 0
         for (0..numLocals) |_| {
-            try self.writePushPop(.C_PUSH, .LCL, 0);
+            try self.writePushPop(.C_PUSH, .Local, 0);
         }
     }
 
@@ -292,7 +301,7 @@ test "writePushPop" {
 
     try cw.writePushPop(.C_PUSH, .Constant, 10);
     try testing.expectEqual(cw.instructions.items.len, 1);
-    try cw.writePushPop(.C_POP, .LCL, 0);
+    try cw.writePushPop(.C_POP, .Local, 0);
     try testing.expectEqual(cw.instructions.items.len, 2);
 
     for (cw.instructions.items) |item| {

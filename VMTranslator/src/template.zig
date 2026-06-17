@@ -15,40 +15,6 @@ pub const Bootstrap =
     \\0;JMP
 ;
 
-pub const UnaryOperation =
-    \\@SP
-    \\A=M-1
-    \\{s}
-;
-
-pub const BinaryOperation =
-    \\@SP
-    \\AM=M-1
-    \\D=M
-    \\A=A-1
-    \\{s}
-;
-
-pub const CompareOperation =
-    \\@SP
-    \\AM=M-1
-    \\D=M
-    \\A=A-1
-    \\D=M-D
-    \\@{0s}
-    \\D;{1s}
-    \\  @SP
-    \\  A=M-1
-    \\  M=0
-    \\  @end_{0s}
-    \\  0;JMP
-    \\({0s})
-    \\  @SP
-    \\  A=M-1
-    \\  M=-1
-    \\(end_{0s})
-;
-
 pub const Push =
     \\@{d}
     \\D={c}
@@ -59,7 +25,7 @@ pub const Push =
     \\M=M+1
 ;
 
-pub const PushVirtual =
+pub const PushMemory =
     \\@{d}
     \\D=A
     \\@{c}
@@ -81,7 +47,7 @@ pub const Pop =
     \\M=D
 ;
 
-pub const PopVirtual =
+pub const PopMemory =
     \\@{d}
     \\D=A
     \\@{c}
@@ -147,7 +113,7 @@ pub const Return =
     \\D=M
     \\@THIS
     \\M=D
-    // Resture the ARG pointer
+    // Restore the ARG pointer
     \\@3
     \\D=A
     \\@LCL
@@ -156,7 +122,7 @@ pub const Return =
     \\D=M
     \\@ARG
     \\M=D
-    // Resture the LCL pointer
+    // Restore the LCL pointer
     \\@4
     \\D=A
     \\@LCL
@@ -229,4 +195,38 @@ pub const Call =
     // Jump to function address
     \\@{s}
     \\0;JMP
+;
+
+pub const UnaryOperation =
+    \\@SP
+    \\A=M-1
+    \\{s}
+;
+
+pub const BinaryOperation =
+    \\@SP
+    \\AM=M-1
+    \\D=M
+    \\A=A-1
+    \\{s}
+;
+
+pub const CompareOperation =
+    \\@SP
+    \\AM=M-1
+    \\D=M
+    \\A=A-1
+    \\D=M-D
+    \\@{0s}
+    \\D;{1s}
+    \\  @SP
+    \\  A=M-1
+    \\  M=0
+    \\  @end_{0s}
+    \\  0;JMP
+    \\({0s})
+    \\  @SP
+    \\  A=M-1
+    \\  M=-1
+    \\(end_{0s})
 ;

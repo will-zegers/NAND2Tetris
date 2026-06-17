@@ -181,7 +181,7 @@ test "arg1" {
     parser.advance();
     try testing.expectEqual(parser.arg1().?.segment, .Constant);
     parser.advance();
-    try testing.expectEqual(parser.arg1().?.segment, .LCL);
+    try testing.expectEqual(parser.arg1().?.segment, .Local);
     for (0..15) |_| {
         parser.advance();
     }
