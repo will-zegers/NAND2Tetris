@@ -26,6 +26,8 @@ const OperationType = mOperation.OperationType;
 const mSegment = @import("map/segment.zig");
 const SegmentType = mSegment.SegmentType;
 
+const tmpl = @import("template.zig");
+
 const LABEL_SIZE: usize = 5;
 
 const CodeWriterError = error{
@@ -91,35 +93,19 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeInit(self: *Self) !void {
-        const bootstrap =
-            \\@256
-            \\D=A
-            \\@SP
-            \\M=D
-            \\@300
-            \\D=A
-            \\@LCL
-            \\M=D
-            \\@400
-            \\D=A
-            \\@ARG
-            \\M=D
-            \\@Sys.init
-            \\0;JMP
-        ;
-        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
-        self.instructionCount += mem.count(u8, bootstrap, "\n") + 1;
+        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, tmpl.Bootstrap));
+        self.instructionCount += mem.count(u8, tmpl.Bootstrap, "\n") + 1;
 
         try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, "Sys.init"), .index = 0 });
     }
     pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
-            .Add => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D+M"}),
-            .Sub => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=M-D"}),
-            .And => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D&M"}),
-            .Or => try fmt.allocPrint(self.allocator, BinaryTemplate, .{"M=D|M"}),
-            .Neg => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=-M"}),
-            .Not => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=!M"}),
+            .Add => try fmt.allocPrint(self.allocator, tmpl.BinaryOperation, .{"M=D+M"}),
+            .Sub => try fmt.allocPrint(self.allocator, tmpl.BinaryOperation, .{"M=M-D"}),
+            .And => try fmt.allocPrint(self.allocator, tmpl.BinaryOperation, .{"M=D&M"}),
+            .Or => try fmt.allocPrint(self.allocator, tmpl.BinaryOperation, .{"M=D|M"}),
+            .Neg => try fmt.allocPrint(self.allocator, tmpl.UnaryOperation, .{"M=-M"}),
+            .Not => try fmt.allocPrint(self.allocator, tmpl.UnaryOperation, .{"M=!M"}),
             .Eq, .Lt, .Gt => |compare| blk: {
                 const label = try self.generateRandomLabel(self.allocator);
                 defer self.allocator.free(label);
@@ -130,7 +116,7 @@ pub const CodeWriter = struct {
                     .Gt => "JGT",
                     else => unreachable,
                 };
-                break :blk try std.fmt.allocPrint(self.allocator, CompareTemplate, .{ label, jumpType });
+                break :blk try std.fmt.allocPrint(self.allocator, tmpl.CompareOperation, .{ label, jumpType });
             },
         };
 
@@ -155,19 +141,6 @@ pub const CodeWriter = struct {
             .C_PUSH => {
                 switch (segment) {
                     .LCL, .ARG, .This, .That => {
-                        const template =
-                            \\@{d}
-                            \\D=A
-                            \\@{c}
-                            \\D=D+M
-                            \\A=D
-                            \\D=M
-                            \\@SP
-                            \\A=M
-                            \\M=D
-                            \\@SP
-                            \\M=M+1
-                        ;
                         const pAddr: u8 = switch (segment) {
                             .LCL => '1',
                             .ARG => '2',
@@ -175,41 +148,19 @@ pub const CodeWriter = struct {
                             .That => '4',
                             else => unreachable,
                         };
-                        buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
+                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PushVirtual, .{ index, pAddr });
                     },
                     else => { // .Static, .Temp, .Pointer
                         const baseAddr = self.baseAddrTable.get(segment).?;
                         const addrOffset = baseAddr + index;
-
-                        const template =
-                            \\@{d}
-                            \\D={c}
-                            \\@SP
-                            \\A=M
-                            \\M=D
-                            \\@SP
-                            \\M=M+1
-                        ;
                         const source: u8 = if (segment == .Constant) 'A' else 'M';
-                        buf = try std.fmt.allocPrint(self.allocator, template, .{ addrOffset, source });
+                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PushVirtual, .{ addrOffset, source });
                     },
                 }
             },
             .C_POP => {
                 switch (segment) {
                     .LCL, .ARG, .This, .That => {
-                        const template =
-                            \\@{d}
-                            \\D=A
-                            \\@{c}
-                            \\D=D+M
-                            \\@SP
-                            \\AM=M-1
-                            \\D=D+M
-                            \\A=D-M
-                            \\D=D-A
-                            \\M=D
-                        ;
                         const pAddr: u8 = switch (segment) {
                             .LCL => '1',
                             .ARG => '2',
@@ -217,20 +168,12 @@ pub const CodeWriter = struct {
                             .That => '4',
                             else => unreachable,
                         };
-                        buf = try std.fmt.allocPrint(self.allocator, template, .{ index, pAddr });
+                        buf = try std.fmt.allocPrint(self.allocator, tmpl.PopVirtual, .{ index, pAddr });
                     },
                     else => { // .Static, .Temp, .Pointer
                         const baseAddr = self.baseAddrTable.get(segment).?;
                         const addrOffset = baseAddr + index;
-
-                        const output =
-                            \\@SP
-                            \\AM=M-1
-                            \\D=M
-                            \\@{d}
-                            \\M=D
-                        ;
-                        buf = try std.fmt.allocPrint(self.allocator, output, .{addrOffset});
+                        buf = try std.fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
                     },
                 }
             },
@@ -252,24 +195,11 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeGoto(self: *Self, label: []const u8) !void {
-        const template =
-            \\@{s}
-            \\0;JMP
-        ;
-
-        try self.writeGotoOrIf(label, template);
+        try self.writeGotoOrIf(label, tmpl.Goto);
     }
 
     pub fn writeIf(self: *Self, label: []const u8) !void {
-        const template =
-            \\@SP
-            \\AM=M-1
-            \\D=M
-            \\@{s}
-            \\D;JNE
-        ;
-
-        try self.writeGotoOrIf(label, template);
+        try self.writeGotoOrIf(label, tmpl.IfGoto);
     }
 
     /// Handles the bulk of writing 'goto' and 'if-goto' instructions, and
@@ -298,139 +228,16 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeReturn(self: *Self) !void {
-        const template =
-            // Save the return address to a temporary register
-            \\@5
-            \\D=A
-            \\@LCL
-            \\A=M
-            \\A=A-D
-            \\D=M
-            \\@R13
-            \\M=D
-            // Pop the return value into ARG[0] (which will be the top of the caller's stack)
-            \\@0
-            \\A=M-1
-            \\D=M
-            \\@ARG
-            \\A=M
-            \\M=D
-            // Restore the stack pointer of the caller
-            \\A=A+1
-            \\D=A
-            \\@SP
-            \\M=D
-            // Restore the THAT pointer
-            \\@1
-            \\D=A
-            \\@LCL
-            \\D=M-D
-            \\A=D
-            \\D=M
-            \\@THAT
-            \\M=D
-            // Restore the THIS pointer
-            \\@2
-            \\D=A
-            \\@LCL
-            \\D=M-D
-            \\A=D
-            \\D=M
-            \\@THIS
-            \\M=D
-            // Resture the ARG pointer
-            \\@3
-            \\D=A
-            \\@LCL
-            \\D=M-D
-            \\A=D
-            \\D=M
-            \\@ARG
-            \\M=D
-            // Resture the LCL pointer
-            \\@4
-            \\D=A
-            \\@LCL
-            \\D=M-D
-            \\A=D
-            \\D=M
-            \\@LCL
-            \\M=D
-            // Jump to the caller's return address
-            \\@R13
-            \\A=M
-            \\0;JMP
-        ;
-        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, template));
-        self.instructionCount += mem.count(u8, template, "\n") + 1;
+        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, tmpl.Return));
+        self.instructionCount += mem.count(u8, tmpl.Return, "\n") + 1;
     }
 
     pub fn writeCall(self: *Self, functionName: []const u8, numArgs: usize) !void {
         const returnLabel = try self.generateRandomLabel(self.allocator);
-        defer self.allocator.free(returnLabel);
 
-        const template =
-            // Push the return address
-            \\@{s}
-            \\D=A
-            \\@0
-            \\A=M
-            \\M=D
-            \\@0
-            \\M=M+1
-            // Push LCL pointer
-            \\@LCL
-            \\D=M
-            \\@0
-            \\A=M
-            \\M=D
-            \\@0
-            \\M=M+1
-            // Push ARG pointer
-            \\@ARG
-            \\D=M
-            \\@0
-            \\A=M
-            \\M=D
-            \\@0
-            \\M=M+1
-            // Push THIS pointer
-            \\@THIS
-            \\D=M
-            \\@0
-            \\A=M
-            \\M=D
-            \\@0
-            \\M=M+1
-            // Push THAT pointer
-            \\@THAT
-            \\D=M
-            \\@0
-            \\A=M
-            \\M=D
-            \\@0
-            \\M=M+1
-            // Set the ARG pointer for the callee (ARG = SP - numArgs - 5 [pointers just pushed to stack])
-            \\@{d}
-            \\D=A
-            \\@5
-            \\D=D+A
-            \\@SP
-            \\D=M-D
-            \\@ARG
-            \\M=D
-            // Set LCL to the top of the stack
-            \\@SP
-            \\D=M
-            \\@LCL
-            \\M=D
-            // Jump to function address
-            \\@{s}
-            \\0;JMP
-        ;
-        const buf = try fmt.allocPrint(self.allocator, template, .{ returnLabel, numArgs, functionName });
+        const buf = try fmt.allocPrint(self.allocator, tmpl.Call, .{ returnLabel, numArgs, functionName });
         try self.instructions.append(self.allocator, buf);
-        self.instructionCount += mem.count(u8, template, "\n") + 1;
+        self.instructionCount += mem.count(u8, tmpl.Call, "\n") + 1;
 
         try self.symbolReferences.append(self.allocator, .{ .label = returnLabel, .index = self.instructions.items.len - 1 });
         try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, functionName), .index = self.instructions.items.len - 1 });
