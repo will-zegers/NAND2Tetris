@@ -49,7 +49,6 @@ pub const CodeWriter = struct {
     instructionCount: usize,
     symbolTable: StringHashMap(usize),
     symbolReferences: ArrayList(SymbolReference),
-    context: []const u8,
 
     pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
         var baseAddrTable = try BaseAddressMap.init(allocator);
@@ -64,7 +63,6 @@ pub const CodeWriter = struct {
             .instructionCount = 0,
             .symbolTable = StringHashMap(usize).init(allocator),
             .symbolReferences = .empty,
-            .context = "main",
         };
     }
 
@@ -97,22 +95,6 @@ pub const CodeWriter = struct {
             \\@256
             \\D=A
             \\@0
-            \\M=D
-            \\@300
-            \\D=A
-            \\@1
-            \\M=D
-            \\@400
-            \\D=A
-            \\@2
-            \\M=D
-            \\@3000
-            \\D=A
-            \\@3
-            \\M=D
-            \\@3010
-            \\D=A
-            \\@4
             \\M=D
         ;
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
@@ -247,7 +229,7 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeLabel(self: *Self, label: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        const fullLabel = try fmt.allocPrint(self.allocator, "{s}", .{label});
 
         if (self.symbolTable.get(fullLabel)) |_| {
             return CodeWriterError.LabelRedeclaration;
@@ -279,8 +261,7 @@ pub const CodeWriter = struct {
     /// Handles the bulk of writing 'goto' and 'if-goto' instructions, and
     /// depends only on the assembly implementation of either
     fn writeGotoOrIf(self: *Self, label: []const u8, comptime template: []const u8) !void {
-        // create the fully-qualified label, in the form 'context$label'
-        const fullLabel = try fmt.allocPrint(self.allocator, "{0s}${1s}", .{ self.context, label });
+        const fullLabel = try fmt.allocPrint(self.allocator, "{s}", .{label});
         defer self.allocator.free(fullLabel);
 
         const buf = try fmt.allocPrint(self.allocator, template, .{fullLabel});
@@ -416,5 +397,5 @@ test "writeLabel" {
     try cw.writePushPop(.C_PUSH, .Constant, 42);
     try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
-    try testing.expectEqual(cw.symbolTable.get("main$foo"), 20);
+    try testing.expectEqual(cw.symbolTable.get("foo"), 16);
 }

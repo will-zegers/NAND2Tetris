@@ -69,9 +69,7 @@ pub fn main(init: std.process.Init) !void {
     };
 
     while (inputFilesList.pop()) |filepath| {
-        defer init.gpa.free(filepath);
         // Parser init
-        std.debug.print("{s}\n", .{filepath});
         var parser = Parser.init(filepath, init.io, init.gpa) catch {
             try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
             process.exit(1);
@@ -94,16 +92,6 @@ pub fn main(init: std.process.Init) !void {
                 .C_ARITHMETIC => {
                     codeWriter.writeArithmetic(arg1.operation) catch {
                         try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_FUNCTION => {
-                    const numLocals = parser.arg2() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing number of locals\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeFunction(arg1.label, numLocals) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing function command\n");
                         process.exit(1);
                     };
                 },
@@ -135,11 +123,8 @@ pub fn main(init: std.process.Init) !void {
                         process.exit(1);
                     };
                 },
-                .C_RETURN => {
-                    codeWriter.writeReturn() catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing return command\n");
-                        process.exit(1);
-                    };
+                else => {
+                    process.fatal("Unsupported command type: {}", .{commandType});
                 },
             }
         }
