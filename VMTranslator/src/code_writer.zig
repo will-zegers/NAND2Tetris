@@ -94,11 +94,23 @@ pub const CodeWriter = struct {
         const bootstrap =
             \\@256
             \\D=A
-            \\@0
+            \\@SP
             \\M=D
+            \\@300
+            \\D=A
+            \\@LCL
+            \\M=D
+            \\@400
+            \\D=A
+            \\@ARG
+            \\M=D
+            \\@Sys.init
+            \\0;JMP
         ;
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, bootstrap));
         self.instructionCount += mem.count(u8, bootstrap, "\n") + 1;
+
+        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, "Sys.init"), .index = 0 });
     }
     pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
@@ -109,7 +121,7 @@ pub const CodeWriter = struct {
             .Neg => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=-M"}),
             .Not => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=!M"}),
             .Eq, .Lt, .Gt => |compare| blk: {
-                const label = self.generateLabel();
+                const label = try self.generateRandomLabel();
                 const jumpType = switch (compare) {
                     .Eq => "JEQ",
                     .Lt => "JLT",
@@ -125,10 +137,10 @@ pub const CodeWriter = struct {
     }
 
     /// Generate a random label to be embbed in the output code
-    fn generateLabel(self: Self) [LABEL_SIZE]u8 {
+    fn generateRandomLabel(self: Self) ![]const u8 {
         const iRng = self.rng.interface();
 
-        var label = [LABEL_SIZE]u8{ 0, 0, 0, 0, 0 };
+        var label = try self.allocator.alloc(u8, LABEL_SIZE);
         for (0..LABEL_SIZE) |i| {
             label[i] = iRng.intRangeAtMost(u8, 'a', 'z');
         }
@@ -278,17 +290,8 @@ pub const CodeWriter = struct {
         try self.writeLabel(functionName);
 
         // Initialize 'numLocals' local variables to 0
-        const template =
-            \\@{d}
-            \\D=A
-            \\@LCL
-            \\D=D+M
-            \\A=D
-            \\M=0
-        ;
-        for (0..numLocals) |i| {
-            const buf = try fmt.allocPrint(self.allocator, template, .{i});
-            try self.instructions.append(self.allocator, buf);
+        for (0..numLocals) |_| {
+            try self.writePushPop(.C_PUSH, .LCL, 0);
         }
     }
 
@@ -357,7 +360,78 @@ pub const CodeWriter = struct {
             \\0;JMP
         ;
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, template));
-        self.instructionCount += mem.count(u8, template, "\n");
+        self.instructionCount += mem.count(u8, template, "\n") + 1;
+    }
+
+    pub fn writeCall(self: *Self, functionName: []const u8, numArgs: usize) !void {
+        const returnLabel = try self.generateRandomLabel();
+        const template =
+            // Push the return address
+            \\@{s}
+            \\D=A
+            \\@0
+            \\A=M
+            \\M=D
+            \\@0
+            \\M=M+1
+            // Push LCL pointer
+            \\@LCL
+            \\D=M
+            \\@0
+            \\A=M
+            \\M=D
+            \\@0
+            \\M=M+1
+            // Push ARG pointer
+            \\@ARG
+            \\D=M
+            \\@0
+            \\A=M
+            \\M=D
+            \\@0
+            \\M=M+1
+            // Push THIS pointer
+            \\@THIS
+            \\D=M
+            \\@0
+            \\A=M
+            \\M=D
+            \\@0
+            \\M=M+1
+            // Push THAT pointer
+            \\@THAT
+            \\D=M
+            \\@0
+            \\A=M
+            \\M=D
+            \\@0
+            \\M=M+1
+            // Set the ARG pointer for the callee (ARG = SP - numArgs - 5 [pointers just pushed to stack])
+            \\@{d}
+            \\D=A
+            \\@5
+            \\D=D+A
+            \\@SP
+            \\D=M-D
+            \\@ARG
+            \\M=D
+            // Set LCL to the top of the stack
+            \\@SP
+            \\D=M
+            \\@LCL
+            \\M=D
+            // Jump to function address
+            \\@{s}
+            \\0;JMP
+        ;
+        const buf = try fmt.allocPrint(self.allocator, template, .{ returnLabel, numArgs, functionName });
+        try self.instructions.append(self.allocator, buf);
+        self.instructionCount += mem.count(u8, template, "\n") + 1;
+
+        try self.symbolReferences.append(self.allocator, .{ .label = returnLabel, .index = self.instructions.items.len - 1 });
+        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, functionName), .index = self.instructions.items.len - 1 });
+
+        try self.writeLabel(returnLabel);
     }
 
     /// Uses the built list of instructions with symbolic references, and

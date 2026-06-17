@@ -95,6 +95,20 @@ pub fn main(init: std.process.Init) !void {
                         process.exit(1);
                     };
                 },
+                .C_CALL => {
+                    const arg1 = parser.arg1() orelse {
+                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
+                        process.exit(1);
+                    };
+                    const numArgs = parser.arg2() orelse {
+                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
+                        process.exit(1);
+                    };
+                    codeWriter.writeCall(arg1.label, numArgs) catch {
+                        try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
+                        process.exit(1);
+                    };
+                },
                 .C_FUNCTION => {
                     const arg1 = parser.arg1() orelse {
                         try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
@@ -158,9 +172,6 @@ pub fn main(init: std.process.Init) !void {
                         try stdout.writeStreamingAll(init.io, "Error writing return command\n");
                         process.exit(1);
                     };
-                },
-                else => {
-                    process.fatal("Unsupported command type: {}", .{commandType});
                 },
             }
         }
