@@ -274,6 +274,92 @@ pub const CodeWriter = struct {
         try self.symbolReferences.append(self.allocator, entry);
     }
 
+    pub fn writeFunction(self: *Self, functionName: []const u8, numLocals: usize) !void {
+        try self.writeLabel(functionName);
+
+        // Initialize 'numLocals' local variables to 0
+        const template =
+            \\@{d}
+            \\D=A
+            \\@LCL
+            \\D=D+M
+            \\A=D
+            \\M=0
+        ;
+        for (0..numLocals) |i| {
+            const buf = try fmt.allocPrint(self.allocator, template, .{i});
+            try self.instructions.append(self.allocator, buf);
+        }
+    }
+
+    pub fn writeReturn(self: *Self) !void {
+        const template =
+            // Save the return address to a temporary register
+            \\@5
+            \\D=A
+            \\@LCL
+            \\A=M
+            \\A=A-D
+            \\D=M
+            \\@R13
+            \\M=D
+            // Pop the return value into ARG[0] (which will be the top of the caller's stack)
+            \\@0
+            \\A=M-1
+            \\D=M
+            \\@ARG
+            \\A=M
+            \\M=D
+            // Restore the stack pointer of the caller
+            \\A=A+1
+            \\D=A
+            \\@SP
+            \\M=D
+            // Restore the THAT pointer
+            \\@1
+            \\D=A
+            \\@LCL
+            \\D=M-D
+            \\A=D
+            \\D=M
+            \\@THAT
+            \\M=D
+            // Restore the THIS pointer
+            \\@2
+            \\D=A
+            \\@LCL
+            \\D=M-D
+            \\A=D
+            \\D=M
+            \\@THIS
+            \\M=D
+            // Resture the ARG pointer
+            \\@3
+            \\D=A
+            \\@LCL
+            \\D=M-D
+            \\A=D
+            \\D=M
+            \\@ARG
+            \\M=D
+            // Resture the LCL pointer
+            \\@4
+            \\D=A
+            \\@LCL
+            \\D=M-D
+            \\A=D
+            \\D=M
+            \\@LCL
+            \\M=D
+            // Jump to the caller's return address
+            \\@R13
+            \\A=M
+            \\0;JMP
+        ;
+        try self.instructions.append(self.allocator, try self.allocator.dupe(u8, template));
+        self.instructionCount += mem.count(u8, template, "\n");
+    }
+
     /// Uses the built list of instructions with symbolic references, and
     /// uses a lookup to resolve those symbols to addresses in ROM
     fn resolveSymbols(self: *Self) !void {
