@@ -121,7 +121,9 @@ pub const CodeWriter = struct {
             .Neg => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=-M"}),
             .Not => try fmt.allocPrint(self.allocator, UnaryTemplate, .{"M=!M"}),
             .Eq, .Lt, .Gt => |compare| blk: {
-                const label = try self.generateRandomLabel();
+                const label = try self.generateRandomLabel(self.allocator);
+                defer self.allocator.free(label);
+
                 const jumpType = switch (compare) {
                     .Eq => "JEQ",
                     .Lt => "JLT",
@@ -136,11 +138,11 @@ pub const CodeWriter = struct {
         self.instructionCount += mem.count(u8, buf, "\n") + 1;
     }
 
-    /// Generate a random label to be embbed in the output code
-    fn generateRandomLabel(self: Self) ![]const u8 {
+    /// Generate a random label to be embbed in the output code. Caller owns the label
+    fn generateRandomLabel(self: Self, allocator: mem.Allocator) ![]const u8 {
         const iRng = self.rng.interface();
 
-        var label = try self.allocator.alloc(u8, LABEL_SIZE);
+        var label = try allocator.alloc(u8, LABEL_SIZE);
         for (0..LABEL_SIZE) |i| {
             label[i] = iRng.intRangeAtMost(u8, 'a', 'z');
         }
@@ -364,7 +366,9 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeCall(self: *Self, functionName: []const u8, numArgs: usize) !void {
-        const returnLabel = try self.generateRandomLabel();
+        const returnLabel = try self.generateRandomLabel(self.allocator);
+        defer self.allocator.free(returnLabel);
+
         const template =
             // Push the return address
             \\@{s}
@@ -542,10 +546,9 @@ test "writeInit" {
 
     try cw.writeInit();
     const instruction = cw.instructions.getLast().?;
-    try testing.expect(mem.count(u8, instruction, "@0") > 0);
-    try testing.expect(mem.count(u8, instruction, "@1") > 0);
-    try testing.expect(mem.count(u8, instruction, "@2") > 0);
-    try testing.expect(mem.count(u8, instruction, "@3") > 0);
+    try testing.expect(mem.count(u8, instruction, "@SP") > 0);
+    try testing.expect(mem.count(u8, instruction, "@LCL") > 0);
+    try testing.expect(mem.count(u8, instruction, "@ARG") > 0);
 }
 
 test "writeLabel" {
@@ -553,9 +556,9 @@ test "writeLabel" {
     defer cw.deinit();
 
     try cw.writeInit();
-    try cw.writeLabel("foo");
+    try cw.writeLabel("Sys.init");
     try cw.writePushPop(.C_PUSH, .Constant, 42);
     try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
-    try testing.expectEqual(cw.symbolTable.get("foo"), 16);
+    try testing.expectEqual(cw.symbolTable.get("Sys.init"), 14);
 }
