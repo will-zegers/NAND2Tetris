@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
     } else |err| { // ...or just a single file, in which case we'll parse just that one.
         switch (err) {
             error.NotDir => {
-                try inputFilesList.append(init.gpa, inputPath);
+                try inputFilesList.append(init.gpa, try init.gpa.dupe(u8, inputPath));
                 var it = std.mem.splitScalar(u8, inputPath, '.');
                 baseName = it.first(); // Output .asm will have the same name as the input .vm
             },
@@ -69,7 +69,9 @@ pub fn main(init: std.process.Init) !void {
     };
 
     while (inputFilesList.pop()) |filepath| {
-        // Parser init
+        defer init.gpa.free(filepath);
+
+        // Parser init (new Parser for each .vm file)
         var parser = Parser.init(filepath, init.io, init.gpa) catch {
             try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
             process.exit(1);

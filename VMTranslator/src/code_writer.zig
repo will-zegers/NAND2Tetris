@@ -28,7 +28,7 @@ const SegmentType = mSegment.SegmentType;
 
 const tmpl = @import("template.zig");
 
-const LABEL_SIZE: usize = 5;
+const TAG_SIZE: usize = 5;
 
 const CodeWriterError = error{
     UnresolvedLabel,
@@ -51,6 +51,7 @@ pub const CodeWriter = struct {
     instructionCount: usize,
     symbolTable: StringHashMap(usize),
     symbolReferences: ArrayList(SymbolReference),
+    context: ?[]const u8,
 
     pub fn init(io: std.Io, allocator: mem.Allocator) !Self {
         var baseAddrTable = try BaseAddressMap.init(allocator);
@@ -65,6 +66,7 @@ pub const CodeWriter = struct {
             .instructionCount = 0,
             .symbolTable = StringHashMap(usize).init(allocator),
             .symbolReferences = .empty,
+            .context = null,
         };
     }
 
@@ -107,8 +109,8 @@ pub const CodeWriter = struct {
             .Neg => try fmt.allocPrint(self.allocator, tmpl.UnaryOperation, .{"M=-M"}),
             .Not => try fmt.allocPrint(self.allocator, tmpl.UnaryOperation, .{"M=!M"}),
             .Eq, .Lt, .Gt => |compare| blk: {
-                const label = try self.generateRandomLabel(self.allocator);
-                defer self.allocator.free(label);
+                const tag = try self.generateRandomTag(self.allocator);
+                defer self.allocator.free(tag);
 
                 const jumpType = switch (compare) {
                     .Eq => "JEQ",
@@ -116,7 +118,7 @@ pub const CodeWriter = struct {
                     .Gt => "JGT",
                     else => unreachable,
                 };
-                break :blk try std.fmt.allocPrint(self.allocator, tmpl.CompareOperation, .{ label, jumpType });
+                break :blk try std.fmt.allocPrint(self.allocator, tmpl.CompareOperation, .{ tag, jumpType });
             },
         };
 
@@ -125,14 +127,14 @@ pub const CodeWriter = struct {
     }
 
     /// Generate a random label to be embbed in the output code. Caller owns the label
-    fn generateRandomLabel(self: Self, allocator: mem.Allocator) ![]const u8 {
+    fn generateRandomTag(self: Self, allocator: mem.Allocator) ![]const u8 {
         const iRng = self.rng.interface();
 
-        var label = try allocator.alloc(u8, LABEL_SIZE);
-        for (0..LABEL_SIZE) |i| {
-            label[i] = iRng.intRangeAtMost(u8, 'a', 'z');
+        var tag = try allocator.alloc(u8, TAG_SIZE);
+        for (0..TAG_SIZE) |i| {
+            tag[i] = iRng.intRangeAtMost(u8, 'a', 'z');
         }
-        return label;
+        return tag;
     }
 
     pub fn writePushPop(self: *Self, commandType: CommandType, segment: SegmentType, index: u16) !void {
@@ -195,12 +197,23 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeLabel(self: *Self, label: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{s}", .{label});
+        try self.createLabelEntry(label, self.context);
+    }
 
-        if (self.symbolTable.get(fullLabel)) |_| {
+    fn createLabelEntry(self: *Self, label: []const u8, context: ?[]const u8) !void {
+        const labelKey = if (context) |ctx|
+            try fmt.allocPrint(self.allocator, "{s}${s}", .{ ctx, label })
+        else
+            try fmt.allocPrint(self.allocator, "{s}", .{label});
+
+        const labelI = try fmt.allocPrint(self.allocator, "({s})", .{labelKey});
+        try self.instructions.append(self.allocator, labelI);
+        self.instructionCount += 1;
+
+        if (self.symbolTable.get(labelKey)) |_| {
             return CodeWriterError.LabelRedeclaration;
         }
-        try self.symbolTable.put(fullLabel, self.instructionCount);
+        try self.symbolTable.put(labelKey, self.instructionCount);
     }
 
     pub fn writeGoto(self: *Self, label: []const u8) !void {
@@ -214,7 +227,7 @@ pub const CodeWriter = struct {
     /// Handles the bulk of writing 'goto' and 'if-goto' instructions, and
     /// depends only on the assembly implementation of either
     fn writeGotoOrIf(self: *Self, label: []const u8, comptime template: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{s}", .{label});
+        const fullLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.context.?, label });
         defer self.allocator.free(fullLabel);
 
         const buf = try fmt.allocPrint(self.allocator, template, .{fullLabel});
@@ -228,7 +241,8 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeFunction(self: *Self, functionName: []const u8, numLocals: usize) !void {
-        try self.writeLabel(functionName);
+        try self.createLabelEntry(functionName, null);
+        self.context = functionName;
 
         // Initialize 'numLocals' local variables to 0
         for (0..numLocals) |_| {
@@ -242,42 +256,22 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeCall(self: *Self, functionName: []const u8, numArgs: usize) !void {
-        const returnLabel = try self.generateRandomLabel(self.allocator);
+        const returnTag = try self.generateRandomTag(self.allocator);
+        defer self.allocator.free(returnTag);
+        const returnLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.context.?, returnTag });
 
         const buf = try fmt.allocPrint(self.allocator, tmpl.Call, .{ returnLabel, numArgs, functionName });
         try self.instructions.append(self.allocator, buf);
         self.instructionCount += mem.count(u8, tmpl.Call, "\n") + 1;
 
-        try self.symbolReferences.append(self.allocator, .{ .label = returnLabel, .index = self.instructions.items.len - 1 });
-        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, functionName), .index = self.instructions.items.len - 1 });
+        const index = self.instructions.items.len - 1;
+        try self.symbolReferences.append(self.allocator, .{ .label = returnLabel, .index = index });
+        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, functionName), .index = index });
 
-        try self.writeLabel(returnLabel);
-    }
-
-    /// Uses the built list of instructions with symbolic references, and
-    /// uses a lookup to resolve those symbols to addresses in ROM
-    fn resolveSymbols(self: *Self) !void {
-        for (self.symbolReferences.items) |item| {
-            const romAddr = self.symbolTable.get(item.label) orelse {
-                return CodeWriterError.UnresolvedLabel;
-            };
-
-            const template: []const u8 = self.instructions.items[item.index];
-            defer self.allocator.free(template);
-
-            // usize to []const u8
-            const romAddrStr = try fmt.allocPrint(self.allocator, "{d}", .{romAddr});
-            defer self.allocator.free(romAddrStr);
-
-            // replace the label with the actual ROM address
-            const buf = try mem.replaceOwned(u8, self.allocator, template, item.label, romAddrStr);
-            self.instructions.items[item.index] = buf;
-        }
+        try self.createLabelEntry(returnLabel, null);
     }
 
     pub fn close(self: *Self, io: std.Io) !void {
-        try self.resolveSymbols();
-
         const output = try mem.join(self.allocator, "\n", self.instructions.items);
         defer self.allocator.free(output);
 
