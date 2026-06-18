@@ -23,13 +23,7 @@ const SegmentType = mSegment.SegmentType;
 const TAG_SIZE: usize = 5;
 
 const CodeWriterError = error{
-    UnresolvedLabel,
     LabelRedeclaration,
-};
-
-const SymbolReference = struct {
-    index: usize, // instruction index
-    label: []const u8,
 };
 
 pub const CodeWriter = struct {
@@ -41,8 +35,6 @@ pub const CodeWriter = struct {
     outputPath: []const u8,
     rng: Random.IoSource,
     instructionCount: usize,
-    symbolTable: StringHashMap(usize),
-    symbolReferences: ArrayList(SymbolReference),
     staticNamespace: ?[]const u8,
     subroutineNamespace: ?[]const u8,
 
@@ -57,8 +49,6 @@ pub const CodeWriter = struct {
             .outputPath = outputPath,
             .rng = .{ .io = io },
             .instructionCount = 0,
-            .symbolTable = StringHashMap(usize).init(allocator),
-            .symbolReferences = .empty,
             .staticNamespace = null,
             .subroutineNamespace = null,
         };
@@ -66,21 +56,10 @@ pub const CodeWriter = struct {
 
     pub fn deinit(self: *Self) void {
         defer self.instructions.deinit(self.allocator);
-        defer self.symbolReferences.deinit(self.allocator);
         defer self.baseAddrTable.deinit();
-        defer self.symbolTable.deinit();
 
         for (self.instructions.items) |item| {
             self.allocator.free(item);
-        }
-
-        var kit = self.symbolTable.keyIterator();
-        while (kit.next()) |key| {
-            self.allocator.free(key.*);
-        }
-
-        for (self.symbolReferences.items) |item| {
-            self.allocator.free(item.label);
         }
     }
 
@@ -101,9 +80,8 @@ pub const CodeWriter = struct {
     pub fn writeInit(self: *Self) !void {
         try self.instructions.append(self.allocator, try self.allocator.dupe(u8, tmpl.Bootstrap));
         self.instructionCount += mem.count(u8, tmpl.Bootstrap, "\n") + 1;
-
-        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, "Sys.init"), .index = 0 });
     }
+
     pub fn writeArithmetic(self: *Self, operation: OperationType) !void {
         const buf: []const u8 = switch (operation) {
             .Add => try fmt.allocPrint(self.allocator, tmpl.BinaryOperation, .{"M=D+M"}),
@@ -212,18 +190,12 @@ pub const CodeWriter = struct {
 
     fn createLabelEntry(self: *Self, label: []const u8, subroutineNamespace: ?[]const u8) !void {
         const labelKey = if (subroutineNamespace) |ctx|
-            try fmt.allocPrint(self.allocator, "{s}${s}", .{ ctx, label })
+            try fmt.allocPrint(self.allocator, "({s}${s})", .{ ctx, label })
         else
-            try fmt.allocPrint(self.allocator, "{s}", .{label});
+            try fmt.allocPrint(self.allocator, "({s})", .{label});
 
-        const labelI = try fmt.allocPrint(self.allocator, "({s})", .{labelKey});
-        try self.instructions.append(self.allocator, labelI);
+        try self.instructions.append(self.allocator, labelKey);
         self.instructionCount += 1;
-
-        if (self.symbolTable.get(labelKey)) |_| {
-            return CodeWriterError.LabelRedeclaration;
-        }
-        try self.symbolTable.put(labelKey, self.instructionCount);
     }
 
     pub fn writeGoto(self: *Self, label: []const u8) !void {
@@ -243,11 +215,6 @@ pub const CodeWriter = struct {
         const buf = try fmt.allocPrint(self.allocator, template, .{fullLabel});
         try self.instructions.append(self.allocator, buf);
         self.instructionCount += mem.count(u8, template, "\n") + 1;
-
-        // add this instruction as an entry in symbol references, to be resolved
-        // once all labels have been declared and can be mapped to addresses
-        const entry: SymbolReference = .{ .label = try self.allocator.dupe(u8, fullLabel), .index = self.instructions.items.len - 1 };
-        try self.symbolReferences.append(self.allocator, entry);
     }
 
     pub fn writeFunction(self: *Self, functionName: []const u8, numLocals: usize) !void {
@@ -268,15 +235,13 @@ pub const CodeWriter = struct {
     pub fn writeCall(self: *Self, functionName: []const u8, numArgs: usize) !void {
         const returnTag = try self.generateRandomTag(self.allocator);
         defer self.allocator.free(returnTag);
+
         const returnLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.subroutineNamespace.?, returnTag });
+        defer self.allocator.free(returnLabel);
 
         const buf = try fmt.allocPrint(self.allocator, tmpl.Call, .{ returnLabel, numArgs, functionName });
         try self.instructions.append(self.allocator, buf);
         self.instructionCount += mem.count(u8, tmpl.Call, "\n") + 1;
-
-        const index = self.instructions.items.len - 1;
-        try self.symbolReferences.append(self.allocator, .{ .label = returnLabel, .index = index });
-        try self.symbolReferences.append(self.allocator, .{ .label = try self.allocator.dupe(u8, functionName), .index = index });
 
         try self.createLabelEntry(returnLabel, null);
     }
@@ -384,7 +349,6 @@ test "writeLabel" {
     try cw.writePushPop(.C_PUSH, .Constant, 42);
     try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
-    try testing.expectEqual(cw.symbolTable.get("Sys.init"), 15);
 }
 
 test "writeFunction" {
