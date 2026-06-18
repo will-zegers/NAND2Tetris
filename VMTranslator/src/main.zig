@@ -40,13 +40,13 @@ pub fn main(init: std.process.Init) !void {
                 try inputFilesList.append(init.gpa, filePath);
             }
         }
-        var splitter = std.mem.splitScalar(u8, inputPath, '/');
+        var splitter = mem.splitScalar(u8, inputPath, '/');
         baseName = splitter.first(); // Set the basename (and output .asm) to the top-level directory name
     } else |err| { // ...or just a single file, in which case we'll parse just that one.
         switch (err) {
             error.NotDir => {
                 try inputFilesList.append(init.gpa, try init.gpa.dupe(u8, inputPath));
-                var it = std.mem.splitScalar(u8, inputPath, '.');
+                var it = mem.splitScalar(u8, inputPath, '.');
                 baseName = it.first(); // Output .asm will have the same name as the input .vm
             },
             else => return err,

@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
-const StringHashMap = std.StringHashMap;
 
 const util = @import("util.zig");
 
@@ -54,7 +53,7 @@ pub const Parser = struct {
             .commandMap = commandMap,
             .operationMap = operationMap,
             .segmentMap = segmentMap,
-            .commands = std.mem.tokenizeScalar(u8, buffer, '\n'),
+            .commands = mem.tokenizeScalar(u8, buffer, '\n'),
         };
     }
 
@@ -68,7 +67,7 @@ pub const Parser = struct {
     pub fn advance(self: *Self) void {
         while (self.commands.next()) |next| {
             const command = util.trim(next);
-            if (std.mem.startsWith(u8, command, "//")) {
+            if (mem.startsWith(u8, command, "//")) {
                 continue;
             }
             var currentCommand = mem.tokenizeScalar(u8, next, ' ');
@@ -85,7 +84,7 @@ pub const Parser = struct {
     pub fn hasMoreCommands(self: *Self) bool {
         while (self.commands.peek()) |next| {
             // Check if there's more instructions past comments and blank lines
-            if (!std.mem.startsWith(u8, next, "//") and next.len != 0) {
+            if (!mem.startsWith(u8, next, "//") and next.len != 0) {
                 break;
             }
             _ = self.commands.next();

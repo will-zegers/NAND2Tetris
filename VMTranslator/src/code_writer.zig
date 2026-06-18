@@ -1,18 +1,12 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const AutoHashMap = std.AutoHashMap;
 const Random = std.Random;
 const StringHashMap = std.StringHashMap;
 const fmt = std.fmt;
 const mem = std.mem;
 const testing = std.testing;
 
-const util = @import("util.zig");
-
-const arithmetic = @import("arithmetic.zig");
-const UnaryTemplate = arithmetic.UnaryTemplate;
-const BinaryTemplate = arithmetic.BinaryTemplate;
-const CompareTemplate = arithmetic.CompareTemplate;
+const tmpl = @import("template.zig");
 
 const mAddress = @import("map/address.zig");
 const BaseAddressMap = mAddress.BaseAddressMap;
@@ -25,8 +19,6 @@ const OperationType = mOperation.OperationType;
 
 const mSegment = @import("map/segment.zig");
 const SegmentType = mSegment.SegmentType;
-
-const tmpl = @import("template.zig");
 
 const TAG_SIZE: usize = 5;
 
@@ -130,7 +122,7 @@ pub const CodeWriter = struct {
                     .Gt => "JGT",
                     else => unreachable,
                 };
-                break :blk try std.fmt.allocPrint(self.allocator, tmpl.CompareOperation, .{ tag, jumpType });
+                break :blk try fmt.allocPrint(self.allocator, tmpl.CompareOperation, .{ tag, jumpType });
             },
         };
 
@@ -172,7 +164,7 @@ pub const CodeWriter = struct {
                     .That => '4',
                     else => unreachable,
                 };
-                buf = try std.fmt.allocPrint(self.allocator, tmpl.PushMemory, .{ index, pAddr });
+                buf = try fmt.allocPrint(self.allocator, tmpl.PushMemory, .{ index, pAddr });
             },
             .Static => {
                 buf = try fmt.allocPrint(self.allocator, tmpl.PushStatic, .{ self.staticNamespace.?, index });
@@ -181,7 +173,7 @@ pub const CodeWriter = struct {
                 const baseAddr = self.baseAddrTable.get(segment).?;
                 const addrOffset = baseAddr + index;
                 const source: u8 = if (segment == .Constant) 'A' else 'M';
-                buf = try std.fmt.allocPrint(self.allocator, tmpl.Push, .{ addrOffset, source });
+                buf = try fmt.allocPrint(self.allocator, tmpl.Push, .{ addrOffset, source });
             },
         }
         try self.instructions.append(self.allocator, buf);
@@ -199,7 +191,7 @@ pub const CodeWriter = struct {
                     .That => '4',
                     else => unreachable,
                 };
-                buf = try std.fmt.allocPrint(self.allocator, tmpl.PopMemory, .{ index, pAddr });
+                buf = try fmt.allocPrint(self.allocator, tmpl.PopMemory, .{ index, pAddr });
             },
             .Static => {
                 buf = try fmt.allocPrint(self.allocator, tmpl.PopStatic, .{ self.staticNamespace.?, index });
@@ -207,7 +199,7 @@ pub const CodeWriter = struct {
             else => { // .Temp, .Pointer
                 const baseAddr = self.baseAddrTable.get(segment).?;
                 const addrOffset = baseAddr + index;
-                buf = try std.fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
+                buf = try fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
             },
         }
         try self.instructions.append(self.allocator, buf);
