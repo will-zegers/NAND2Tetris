@@ -57,12 +57,11 @@ pub fn main(init: std.process.Init) !void {
     defer init.gpa.free(outputPath);
 
     // CodeWriter init
-    var codeWriter = CodeWriter.init(init.io, init.gpa) catch {
+    var codeWriter = CodeWriter.init(init.io, init.gpa, outputPath) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
         process.exit(1);
     };
     defer codeWriter.deinit();
-    codeWriter.setFileName(outputPath);
     codeWriter.writeInit() catch {
         try stdout.writeStreamingAll(init.io, "Error writing bootstrap code\n");
         process.exit(1);
@@ -71,6 +70,7 @@ pub fn main(init: std.process.Init) !void {
     while (inputFilesList.pop()) |filepath| {
         defer init.gpa.free(filepath);
 
+        codeWriter.setFileName(filepath);
         // Parser init (new Parser for each .vm file)
         var parser = Parser.init(filepath, init.io, init.gpa) catch {
             try stdout.writeStreamingAll(init.io, "Error initializing parser\n");

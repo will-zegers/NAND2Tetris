@@ -25,6 +25,16 @@ pub const Push =
     \\M=M+1
 ;
 
+pub const PushStatic =
+    \\@{s}.{d}
+    \\D=M
+    \\@SP
+    \\A=M
+    \\M=D
+    \\@SP
+    \\M=M+1
+;
+
 pub const PushMemory =
     \\@{d}
     \\D=A
@@ -44,6 +54,14 @@ pub const Pop =
     \\AM=M-1
     \\D=M
     \\@{d}
+    \\M=D
+;
+
+pub const PopStatic =
+    \\@SP
+    \\AM=M-1
+    \\D=M
+    \\@{s}.{d}
     \\M=D
 ;
 
