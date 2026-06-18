@@ -2,8 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
 
-const util = @import("util.zig");
-
 const mCommand = @import("map/command.zig");
 const CommandType = mCommand.CommandType;
 const CommandTypeMap = mCommand.CommandTypeMap;
@@ -66,7 +64,7 @@ pub const Parser = struct {
 
     pub fn advance(self: *Self) void {
         while (self.commands.next()) |next| {
-            const command = util.trim(next);
+            const command = trim(next);
             if (mem.startsWith(u8, command, "//")) {
                 continue;
             }
@@ -124,6 +122,30 @@ pub const Parser = struct {
         return null;
     }
 };
+
+fn trim(string: []const u8) []const u8 {
+    var startIndex: usize = 0;
+    for (string) |c| {
+        if (!isWhiteSpace(c)) {
+            break;
+        }
+        startIndex += 1;
+    }
+
+    var endIndex: usize = string.len;
+    for (0..string.len) |i| {
+        if (!isWhiteSpace(string[string.len - i - 1])) {
+            break;
+        }
+        endIndex -= 1;
+    }
+
+    return string[startIndex..endIndex];
+}
+
+fn isWhiteSpace(char: u8) bool {
+    return (char == '\t' or char == ' ');
+}
 
 test "smoke" {
     var parser = try Parser.init("./test/BasicTest.vm", testing.io, testing.allocator);
