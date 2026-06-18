@@ -301,14 +301,17 @@ pub const CodeWriter = struct {
 };
 
 test "smoke" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "Test.asm");
     defer cw.deinit();
 
-    try testing.expect(cw.instructions.items.len == 0);
+    try testing.expectEqual(cw.instructions.items.len, 0);
+    try testing.expectEqual(cw.instructionCount, 0);
+    try testing.expectEqual(cw.staticNamespace, null);
+    try testing.expectEqual(cw.subroutineNamespace, null);
 }
 
 test "writePushPop" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
     defer cw.deinit();
 
     try cw.writePushPop(.C_PUSH, .Constant, 10);
@@ -325,7 +328,7 @@ test "writePushPop" {
 }
 
 test "writeArithmetic" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
     defer cw.deinit();
 
     try cw.writeArithmetic(.Add);
@@ -348,28 +351,29 @@ test "writeArithmetic" {
     try testing.expect(mem.count(u8, cw.instructions.getLast().?, "JGT") > 0);
 }
 
-// test "setFileName and close" {
-//     var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
-//     defer cw.deinit();
-//
-//     const filename = "./test/test_output.asm";
-//     cw.setFileName(filename);
-//     try cw.writePushPop(.C_PUSH, .Constant, 42);
-//     try cw.writePushPop(.C_PUSH, .Constant, 27);
-//     try cw.writeArithmetic(.Add);
-//     try cw.close(testing.io);
-//
-//     const file = try std.Io.Dir.cwd().openFile(testing.io, filename, .{ .mode = .read_only });
-//     defer file.close(testing.io);
-//     defer std.Io.Dir.cwd().deleteFile(testing.io, filename) catch {
-//         std.debug.print("Failed to delete test file: {s}\n", .{filename});
-//     };
-//
-//     try testing.expect(try file.length(testing.io) > 0);
-// }
+test "setFileName and close" {
+    const outputPath = "test/Test.asm";
+    var cw = try CodeWriter.init(testing.io, testing.allocator, outputPath);
+    defer cw.deinit();
+
+    cw.setFileName("test/Test.vm");
+    try testing.expectEqualStrings("Test", cw.staticNamespace.?);
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+    try cw.close(testing.io);
+
+    const file = try std.Io.Dir.cwd().openFile(testing.io, outputPath, .{ .mode = .read_only });
+    defer file.close(testing.io);
+    defer std.Io.Dir.cwd().deleteFile(testing.io, outputPath) catch {
+        std.debug.print("Failed to delete test file: {s}\n", .{outputPath});
+    };
+
+    try testing.expect(try file.length(testing.io) > 0);
+}
 
 test "writeInit" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
     defer cw.deinit();
 
     try cw.writeInit();
@@ -380,7 +384,7 @@ test "writeInit" {
 }
 
 test "writeLabel" {
-    var cw = try CodeWriter.init(testing.io, testing.allocator, "Main.vm");
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
     defer cw.deinit();
 
     try cw.writeInit();
@@ -389,4 +393,90 @@ test "writeLabel" {
     try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
     try testing.expectEqual(cw.symbolTable.get("Sys.init"), 15);
+}
+
+test "writeFunction" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeFunction("Sys.init", 3);
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+
+    try testing.expectEqualStrings(cw.instructions.items[1], "(Sys.init)");
+    // Three local variables, push zero to initialize each one
+    try testing.expectEqualStrings(cw.instructions.items[2], cw.instructions.items[3]);
+    try testing.expectEqualStrings(cw.instructions.items[3], cw.instructions.items[4]);
+}
+
+test "writeGoto" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeFunction("Jump.here", 0);
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+    try cw.writeGoto("Jump.here");
+    const goto = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, goto, "0;JMP") == 1);
+}
+
+test "writeIf" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeFunction("Maybe.jump", 0);
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+    try cw.writeIf("Maybe.jump");
+    const goto = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, goto, "D;JNE") == 1);
+}
+
+test "writeReturn" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeFunction("Sys.init", 3);
+    try cw.writePushPop(.C_PUSH, .Constant, 42);
+    try cw.writePushPop(.C_PUSH, .Constant, 27);
+    try cw.writeArithmetic(.Add);
+    try cw.writeReturn();
+
+    const returnInst = cw.instructions.getLast().?;
+    try testing.expect(mem.count(u8, returnInst, "THAT") > 0);
+    try testing.expect(mem.count(u8, returnInst, "THIS") > 0);
+    try testing.expect(mem.count(u8, returnInst, "ARG") > 0);
+    try testing.expect(mem.count(u8, returnInst, "LCL") > 0);
+    try testing.expect(mem.count(u8, returnInst, "0;JMP") > 0);
+}
+
+test "writeCall" {
+    var cw = try CodeWriter.init(testing.io, testing.allocator, "test/Test.asm");
+    defer cw.deinit();
+
+    try cw.writeInit();
+    try cw.writeFunction("Sys.init", 3);
+    try cw.writeCall("Sys.init", 3);
+
+    const returnLbl = cw.instructions.pop().?;
+    defer testing.allocator.free(returnLbl);
+
+    const callInst = cw.instructions.pop().?;
+    defer testing.allocator.free(callInst);
+
+    try testing.expect(mem.startsWith(u8, returnLbl, "(Sys.init$"));
+
+    try testing.expect(mem.count(u8, callInst, "THAT") > 0);
+    try testing.expect(mem.count(u8, callInst, "THIS") > 0);
+    try testing.expect(mem.count(u8, callInst, "ARG") > 0);
+    try testing.expect(mem.count(u8, callInst, "LCL") > 0);
+    try testing.expect(mem.count(u8, callInst, "0;JMP") > 0);
 }
