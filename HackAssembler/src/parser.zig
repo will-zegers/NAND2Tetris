@@ -104,7 +104,7 @@ pub const Parser = struct {
 
 test "smoke" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
 
     const parser = try Parser.init(fileBuffer[0..length]);
     try testing.expect(@TypeOf(parser) == Parser);
@@ -112,7 +112,7 @@ test "smoke" {
 
 test "hasMoreCommands" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     try testing.expect(parser.hasMoreCommands());
@@ -126,7 +126,7 @@ test "hasMoreCommands" {
 
 test "advance" {
     var fileBuffer: [BUFFER_SIZE:0]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     try testing.expect(parser.currentInstruction == null);
@@ -140,7 +140,7 @@ test "advance" {
 
 test "commandType" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     parser.advance();
@@ -155,7 +155,7 @@ test "commandType" {
 
 test "symbol" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     parser.advance();
@@ -172,7 +172,7 @@ test "symbol" {
 
 test "dest" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     parser.advance();
@@ -190,7 +190,7 @@ test "dest" {
 
 test "comp" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     parser.advance();
@@ -209,7 +209,7 @@ test "comp" {
 
 test "jump" {
     var fileBuffer: [BUFFER_SIZE]u8 = undefined;
-    const length = try util.readASMFile("./test/Test.asm", &fileBuffer, testing.io);
+    const length = try util.readASMFile("./test/Rect.asm", &fileBuffer, testing.io);
     var parser = try Parser.init(fileBuffer[0..length]);
 
     for (0..3) |_| {

@@ -126,7 +126,7 @@ test "freeMap" {
 }
 
 test "readASMFile" {
-    const filePath = "./test/Test.asm";
+    const filePath = "./test/Rect.asm";
     var buffer: [BUFFER_SIZE]u8 = undefined;
     const length = try readASMFile(filePath, &buffer, testing.io);
     try testing.expect(length == 730);

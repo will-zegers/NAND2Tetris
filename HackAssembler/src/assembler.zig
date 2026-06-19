@@ -19,6 +19,8 @@ pub const Assembler = struct {
 
     pub fn init(asmPath: []const u8, io: std.Io, allocator: std.mem.Allocator) !Self {
         const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
+        errdefer allocator.free(buffer);
+
         const bufferLength = try util.readASMFile(asmPath, buffer, io);
         return Self{
             .allocator = allocator,
@@ -116,12 +118,12 @@ pub const Assembler = struct {
 };
 
 test "smoke" {
-    var assembler = try Assembler.init("./test/Test.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
 }
 
 test "firstPass" {
-    var assembler = try Assembler.init("./test/Test.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
     try std.testing.expect(std.mem.count(u8, assembler.buffer, "(LOOP)") > 0);
     try std.testing.expect(std.mem.count(u8, assembler.buffer, "(END)") > 0);
@@ -133,7 +135,7 @@ test "firstPass" {
 }
 
 test "secondPass and assemble" {
-    var assembler = try Assembler.init("./test/Test.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
     const output = try assembler.assemble();
 
