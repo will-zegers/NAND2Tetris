@@ -4,11 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod = b.addModule("hack_assembler", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-    });
-
     const exe = b.addExecutable(.{
         .name = "hack-assembler",
         .root_module = b.createModule(.{
@@ -16,10 +11,6 @@ pub fn build(b: *std.Build) void {
 
             .target = target,
             .optimize = optimize,
-
-            .imports = &.{
-                .{ .name = "hack_assembler", .module = mod },
-            },
         }),
     });
 
