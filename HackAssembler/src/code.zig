@@ -1,56 +1,53 @@
 const std = @import("std");
 const testing = std.testing;
-const util = @import("util.zig");
 
-const COMP_FILE = "./table/comp.table";
-const DEST_FILE = "./table/dest.table";
-const JUMP_FILE = "./table/jump.table";
-
-const BUFFER_SIZE = 1024;
+const CompTable = @import("map/comp.zig").CompTable;
+const DestTable = @import("map/dest.zig").DestTable;
+const JumpTable = @import("map/jump.zig").JumpTable;
 
 pub const Code = struct {
     const Self = @This();
 
-    compTable: std.StringHashMap([]const u8),
-    destTable: std.StringHashMap([]const u8),
-    jumpTable: std.StringHashMap([]const u8),
+    compTable: CompTable,
+    destTable: DestTable,
+    jumpTable: JumpTable,
     allocator: std.mem.Allocator,
 
-    pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
+    pub fn init(allocator: std.mem.Allocator) !Self {
         return Self{
-            .compTable = try util.hashmapFromFile(COMP_FILE, ':', io, allocator),
-            .destTable = try util.hashmapFromFile(DEST_FILE, ':', io, allocator),
-            .jumpTable = try util.hashmapFromFile(JUMP_FILE, ':', io, allocator),
+            .compTable = try .init(allocator),
+            .destTable = try .init(allocator),
+            .jumpTable = try .init(allocator),
             .allocator = allocator,
         };
     }
 
-    pub fn dest(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.destTable.get(mnemonic);
-    }
-
-    pub fn comp(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.compTable.get(mnemonic);
-    }
-
-    pub fn jump(self: Self, mnemonic: []const u8) ?[]const u8 {
-        return self.jumpTable.get(mnemonic);
-    }
-
     pub fn deinit(self: *Self) void {
-        util.freeMap(&self.compTable, self.allocator);
-        util.freeMap(&self.destTable, self.allocator);
-        util.freeMap(&self.jumpTable, self.allocator);
+        self.compTable.deinit();
+        self.destTable.deinit();
+        self.jumpTable.deinit();
+    }
+
+    pub fn dest(self: Self, key: []const u8) ?[]const u8 {
+        return self.destTable.get(key);
+    }
+
+    pub fn comp(self: Self, key: []const u8) ?[]const u8 {
+        return self.compTable.get(key);
+    }
+
+    pub fn jump(self: Self, key: []const u8) ?[]const u8 {
+        return self.jumpTable.get(key);
     }
 };
 
 test "smoke" {
-    var code = try Code.init(testing.io, testing.allocator);
+    var code = try Code.init(testing.allocator);
     defer code.deinit();
 }
 
 test "comp" {
-    var code = try Code.init(testing.io, testing.allocator);
+    var code = try Code.init(testing.allocator);
     defer code.deinit();
 
     const comp = code.comp("D|M").?;
@@ -58,7 +55,7 @@ test "comp" {
 }
 
 test "dest" {
-    var code = try Code.init(testing.io, testing.allocator);
+    var code = try Code.init(testing.allocator);
     defer code.deinit();
 
     const dest = code.dest("MD").?;
@@ -66,7 +63,7 @@ test "dest" {
 }
 
 test "jump" {
-    var code = try Code.init(testing.io, testing.allocator);
+    var code = try Code.init(testing.allocator);
     defer code.deinit();
 
     const jump = code.jump("JGT").?;
