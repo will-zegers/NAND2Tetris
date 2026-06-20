@@ -1,9 +1,13 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
+const fmt = std.fmt;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const testing = std.testing;
 
 const Code = @import("code.zig").Code;
 const Parser = @import("parser.zig").Parser;
-const SymbolTable = @import("symbol.zig").SymbolTable;
+const SymbolTable = @import("map/symbol.zig").SymbolTable;
 const util = @import("util.zig");
 
 const BUFFER_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
@@ -11,137 +15,133 @@ const BUFFER_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
 pub const Assembler = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
-    buffer: []u8,
-    bufferLength: usize,
+    allocator: mem.Allocator,
     code: Code,
+    parser: Parser,
     symbolTable: SymbolTable,
+    instructions: ArrayList([]const u8),
 
-    pub fn init(asmPath: []const u8, io: std.Io, allocator: std.mem.Allocator) !Self {
-        const buffer: []u8 = try allocator.alloc(u8, BUFFER_SIZE);
-        errdefer allocator.free(buffer);
-
-        const bufferLength = try util.readASMFile(asmPath, buffer, io);
-        return Self{
+    pub fn init(asmPath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
+        return .{
             .allocator = allocator,
-            .bufferLength = bufferLength,
-            .buffer = buffer,
-            .code = try Code.init(io, allocator),
-            .symbolTable = try SymbolTable.init(io, allocator),
+            .code = try .init(allocator),
+            .parser = try .init(asmPath, io, allocator),
+            .symbolTable = try .init(allocator),
+            .instructions = try .initCapacity(allocator, 512),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.buffer);
-        self.code.deinit();
-        self.symbolTable.deinit();
+        defer self.code.deinit();
+        defer self.parser.deinit();
+        defer self.symbolTable.deinit();
+        defer self.instructions.deinit(self.allocator);
+
+        for (self.instructions.items) |item| {
+            self.allocator.free(item);
+        }
     }
 
-    // "AVENGERS...✪!!!"
-    pub fn assemble(self: *Self) ![]const u8 {
+    /// "AVENGERS...✪!!!"
+    /// Caller owns the returned slice
+    pub fn assemble(self: *Self, allocator: Allocator) ![]const u8 {
         try self.firstPass();
         try self.secondPass();
 
-        return self.buffer[0 .. self.bufferLength - 1];
+        return mem.join(allocator, "\n", self.instructions.items);
     }
 
     // First pass: resolve labels and build symbol table
     fn firstPass(self: *Self) !void {
         var pc: usize = 0;
-        var length: usize = 0;
-        var out: [BUFFER_SIZE]u8 = undefined;
-        var parser = try Parser.init(self.buffer[0..self.bufferLength]);
 
-        while (parser.hasMoreCommands()) {
-            var buf: []u8 = undefined;
-
-            parser.advance();
-            if (parser.commandType() == .L_COMMAND) {
-                try self.symbolTable.addEntry(parser.symbol().?, pc);
+        while (self.parser.hasMoreCommands()) {
+            self.parser.advance();
+            if (self.parser.commandType() == .L_COMMAND) {
+                try self.symbolTable.put(self.parser.symbol().?, pc);
                 continue;
-            } else if (parser.symbol()) |symbol| {
-                buf = try std.fmt.bufPrint(out[length..], "@{s}\n", .{symbol});
-            } else {
-                const comp = parser.comp().?;
-                if (parser.dest()) |dest| {
-                    buf = try std.fmt.bufPrint(out[length..], "{s}={s}\n", .{ dest, comp });
-                } else if (parser.jump()) |jump| {
-                    buf = try std.fmt.bufPrint(out[length..], "{s};{s}\n", .{ comp, jump });
-                }
             }
-            length += buf.len;
             pc += 1;
         }
-        @memcpy(self.buffer, &out);
-        self.bufferLength = length;
     }
 
     // Second pass: translate to binary and resolve symbols
     fn secondPass(self: *Self) !void {
-        var length: usize = 0;
-        var out: [BUFFER_SIZE]u8 = undefined;
-        var parser = try Parser.init(self.buffer[0..self.bufferLength]);
-        var ramAddr: usize = 0x10;
+        var staticAddr: usize = 16;
 
-        while (parser.hasMoreCommands()) {
+        self.parser.reset();
+        while (self.parser.hasMoreCommands()) {
             var buf: []u8 = undefined;
 
-            parser.advance();
-            if (parser.symbol()) |symbol| {
-                if (std.fmt.parseInt(u16, symbol, 10)) |addr| {
-                    buf = try std.fmt.bufPrint(out[length..], "{b:0>16}\n", .{addr});
-                } else |_| {
-                    if (self.symbolTable.getAddress(symbol)) |addrStr| {
-                        const addr = try std.fmt.parseInt(u16, addrStr, 10);
-                        buf = try std.fmt.bufPrint(out[length..], "{b:0>16}\n", .{addr});
-                    } else {
-                        buf = try std.fmt.bufPrint(out[length..], "{b:0>16}\n", .{ramAddr});
-
-                        try self.symbolTable.addEntry(symbol, ramAddr);
-                        ramAddr += 1;
+            self.parser.advance();
+            switch (self.parser.commandType().?) {
+                .L_COMMAND => continue,
+                .A_COMMAND => {
+                    const symbol = self.parser.symbol().?;
+                    if (fmt.parseInt(usize, symbol, 10)) |addr| { // numeric address
+                        buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
+                    } else |_| { // non-numeric; either new RAM address, existing static, or existing ROM label
+                        if (self.symbolTable.get(symbol)) |addr| { // existing symbol defined by a label
+                            buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
+                        } else { //new symbol, store as a static
+                            buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{staticAddr});
+                            try self.symbolTable.put(symbol, staticAddr);
+                            staticAddr += 1;
+                        }
                     }
-                }
-            } else {
-                const comp = parser.comp().?;
-                if (parser.dest()) |dest| {
-                    const aBit: u8 = if (util.contains(comp, 'M')) '1' else '0';
-                    buf = try std.fmt.bufPrint(out[length..], "111{c}{s}{s}000\n", .{ aBit, self.code.comp(comp).?, self.code.dest(dest).? });
-                } else if (parser.jump()) |jump| {
-                    buf = try std.fmt.bufPrint(out[length..], "1110{s}000{s}\n", .{ self.code.comp(comp).?, self.code.jump(jump).? });
-                }
+                },
+                .C_COMMAND => {
+                    const compKey = self.parser.comp().?;
+                    const comp = self.code.comp(compKey);
+                    if (self.parser.dest()) |destKey| {
+                        const aBit: u8 = if (mem.countScalar(u8, compKey, 'M') > 0) '1' else '0';
+                        const dest = self.code.dest(destKey);
+                        buf = try fmt.allocPrint(self.allocator, "111{c}{s}{s}000", .{ aBit, comp, dest });
+                    } else if (self.parser.jump()) |jumpKey| {
+                        const jump = self.code.jump(jumpKey);
+                        buf = try fmt.allocPrint(self.allocator, "1110{s}000{s}", .{ comp, jump });
+                    }
+                },
             }
-            length += buf.len;
+            try self.instructions.append(self.allocator, buf);
         }
-        @memcpy(self.buffer, &out);
-        self.bufferLength = length;
     }
 };
 
 test "smoke" {
     var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
+
+    const out = try assembler.assemble(testing.allocator);
+    defer testing.allocator.free(out);
 }
 
 test "firstPass" {
     var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
-    try std.testing.expect(std.mem.count(u8, assembler.buffer, "(LOOP)") > 0);
-    try std.testing.expect(std.mem.count(u8, assembler.buffer, "(END)") > 0);
+
+    try std.testing.expectEqual(assembler.symbolTable.get("LOOP"), null);
+    try std.testing.expectEqual(assembler.symbolTable.get("END"), null);
+    try std.testing.expectEqual(assembler.symbolTable.get("addr"), null);
+
     try assembler.firstPass();
-    try std.testing.expect(std.mem.count(u8, assembler.buffer, "(LOOP)") == 0);
-    try std.testing.expect(std.mem.count(u8, assembler.buffer, "(END)") == 0);
-    try std.testing.expect(assembler.symbolTable.contains("LOOP"));
-    try std.testing.expect(assembler.symbolTable.contains("END"));
+    try std.testing.expectEqual(assembler.symbolTable.get("LOOP"), 10);
+    try std.testing.expectEqual(assembler.symbolTable.get("END"), 23);
+    try std.testing.expectEqual(assembler.symbolTable.get("addr"), null);
 }
 
 test "secondPass and assemble" {
     var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
     defer assembler.deinit();
-    const output = try assembler.assemble();
+    const output = try assembler.assemble(testing.allocator);
+    defer testing.allocator.free(output);
 
-    try testing.expect(output.len == 424);
-    try testing.expect(std.mem.eql(u8, "0000000000000000", assembler.buffer[0..16]));
-    try testing.expect(std.mem.eql(u8, "0100000000000000", assembler.buffer[102..118]));
-    try testing.expect(std.mem.eql(u8, "0000000000010001", assembler.buffer[221..237]));
-    try testing.expect(std.mem.eql(u8, "0000000000100000", assembler.buffer[255..271]));
+    try testing.expectEqual(output.len, 424);
+    try testing.expectEqualStrings("0000000000000000", assembler.instructions.items[0]);
+    try testing.expectEqualStrings("0000000000010000", assembler.instructions.items[4]);
+    try testing.expectEqualStrings("0000000000010001", assembler.instructions.items[8]);
+    try testing.expectEqualStrings("1110111010001000", assembler.instructions.items[12]);
+    try testing.expectEqualStrings("1110000010010000", assembler.instructions.items[16]);
+    try testing.expectEqualStrings("1111110010011000", assembler.instructions.items[20]);
+    try testing.expectEqualStrings("1110101010000111", assembler.instructions.items[24]);
 }
