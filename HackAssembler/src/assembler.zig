@@ -14,16 +14,16 @@ pub const Assembler = struct {
     const Self = @This();
 
     allocator: Allocator,
-    code: Code,
     parser: Parser,
+    code: Code,
     symbolTable: SymbolTable,
     instructions: ArrayList([]const u8),
 
     pub fn init(asmPath: []const u8, io: Io, allocator: Allocator) !Self {
         return .{
             .allocator = allocator,
-            .code = try .init(allocator),
             .parser = try .init(asmPath, io, allocator),
+            .code = try .init(allocator),
             .symbolTable = try .init(allocator),
             .instructions = try .initCapacity(allocator, 512),
         };
