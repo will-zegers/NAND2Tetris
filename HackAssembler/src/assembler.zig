@@ -1,27 +1,25 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const Io = std.Io;
 const fmt = std.fmt;
 const mem = std.mem;
-const Allocator = mem.Allocator;
 const testing = std.testing;
 
 const Code = @import("code.zig").Code;
 const Parser = @import("parser.zig").Parser;
 const SymbolTable = @import("map/symbol.zig").SymbolTable;
-const util = @import("util.zig");
-
-const BUFFER_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
 
 pub const Assembler = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
+    allocator: Allocator,
     code: Code,
     parser: Parser,
     symbolTable: SymbolTable,
     instructions: ArrayList([]const u8),
 
-    pub fn init(asmPath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
+    pub fn init(asmPath: []const u8, io: Io, allocator: Allocator) !Self {
         return .{
             .allocator = allocator,
             .code = try .init(allocator),
@@ -79,12 +77,12 @@ pub const Assembler = struct {
                 .A_COMMAND => {
                     const symbol = self.parser.symbol().?;
                     if (fmt.parseInt(usize, symbol, 10)) |addr| { // numeric address
-                        buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
+                        buf = try fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
                     } else |_| { // non-numeric; either new RAM address, existing static, or existing ROM label
                         if (self.symbolTable.get(symbol)) |addr| { // existing symbol defined by a label
-                            buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
+                            buf = try fmt.allocPrint(self.allocator, "{b:0>16}", .{addr});
                         } else { //new symbol, store as a static
-                            buf = try std.fmt.allocPrint(self.allocator, "{b:0>16}", .{staticAddr});
+                            buf = try fmt.allocPrint(self.allocator, "{b:0>16}", .{staticAddr});
                             try self.symbolTable.put(symbol, staticAddr);
                             staticAddr += 1;
                         }
@@ -93,11 +91,11 @@ pub const Assembler = struct {
                 .C_COMMAND => {
                     const compKey = self.parser.comp().?;
                     const comp = self.code.comp(compKey);
-                    if (self.parser.dest()) |destKey| {
+                    if (self.parser.dest()) |destKey| { // arithmetic operation
                         const aBit: u8 = if (mem.countScalar(u8, compKey, 'M') > 0) '1' else '0';
                         const dest = self.code.dest(destKey);
                         buf = try fmt.allocPrint(self.allocator, "111{c}{s}{s}000", .{ aBit, comp, dest });
-                    } else if (self.parser.jump()) |jumpKey| {
+                    } else if (self.parser.jump()) |jumpKey| { // jump operation
                         const jump = self.code.jump(jumpKey);
                         buf = try fmt.allocPrint(self.allocator, "1110{s}000{s}", .{ comp, jump });
                     }
@@ -108,8 +106,10 @@ pub const Assembler = struct {
     }
 };
 
+const TEST_FILE: []const u8 = "./test/Rect.asm";
+
 test "smoke" {
-    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init(TEST_FILE, testing.io, testing.allocator);
     defer assembler.deinit();
 
     const out = try assembler.assemble(testing.allocator);
@@ -117,21 +117,21 @@ test "smoke" {
 }
 
 test "firstPass" {
-    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init(TEST_FILE, testing.io, testing.allocator);
     defer assembler.deinit();
 
-    try std.testing.expectEqual(assembler.symbolTable.get("LOOP"), null);
-    try std.testing.expectEqual(assembler.symbolTable.get("END"), null);
-    try std.testing.expectEqual(assembler.symbolTable.get("addr"), null);
+    try testing.expectEqual(assembler.symbolTable.get("LOOP"), null);
+    try testing.expectEqual(assembler.symbolTable.get("END"), null);
+    try testing.expectEqual(assembler.symbolTable.get("addr"), null);
 
     try assembler.firstPass();
-    try std.testing.expectEqual(assembler.symbolTable.get("LOOP"), 10);
-    try std.testing.expectEqual(assembler.symbolTable.get("END"), 23);
-    try std.testing.expectEqual(assembler.symbolTable.get("addr"), null);
+    try testing.expectEqual(assembler.symbolTable.get("LOOP"), 10);
+    try testing.expectEqual(assembler.symbolTable.get("END"), 23);
+    try testing.expectEqual(assembler.symbolTable.get("addr"), null);
 }
 
 test "secondPass and assemble" {
-    var assembler = try Assembler.init("./test/Rect.asm", testing.io, testing.allocator);
+    var assembler = try Assembler.init(TEST_FILE, testing.io, testing.allocator);
     defer assembler.deinit();
     const output = try assembler.assemble(testing.allocator);
     defer testing.allocator.free(output);

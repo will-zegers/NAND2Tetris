@@ -1,16 +1,16 @@
 const std = @import("std");
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
 const process = std.process;
 const testing = std.testing;
-const StringHashMap = std.StringHashMap;
 
 pub const CompTable = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
+    allocator: Allocator,
     map: StringHashMap([]const u8),
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         var map = StringHashMap([]const u8).init(allocator);
         errdefer map.deinit();
 

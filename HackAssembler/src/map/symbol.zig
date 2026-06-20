@@ -1,16 +1,16 @@
 const std = @import("std");
-const mem = std.mem;
-const testing = std.testing;
+const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const testing = std.testing;
 
 pub const SymbolTable = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
+    allocator: Allocator,
     fixedMap: StringHashMap(usize),
     allocMap: StringHashMap(usize),
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         var fixedMap = StringHashMap(usize).init(allocator);
         errdefer fixedMap.deinit();
 

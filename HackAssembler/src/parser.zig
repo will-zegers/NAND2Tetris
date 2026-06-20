@@ -20,7 +20,7 @@ pub const Parser = struct {
     instructions: mem.TokenIterator(u8, .scalar),
 
     pub fn init(filepath: []const u8, io: Io, allocator: Allocator) !Self {
-        const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
+        const buffer = try Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
         errdefer allocator.free(buffer);
 
         return .{
