@@ -1,13 +1,16 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Init = std.process.Init;
+const Io = std.Io;
 const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
+
 const CodeWriter = @import("./code_writer.zig").CodeWriter;
 const Parser = @import("./parser.zig").Parser;
 
-pub fn main(init: std.process.Init) !void {
-    const stdout = std.Io.File.stdout();
+pub fn main(init: Init) !void {
+    const stdout = Io.File.stdout();
 
     // Parse input args for the input file or directory
     var iterator =
@@ -30,7 +33,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Check if we were given a directory, in which case we'll parse ALL files within the directory...
-    if (std.Io.Dir.cwd().openDir(init.io, inputPath, .{ .iterate = true })) |dir| {
+    if (Io.Dir.cwd().openDir(init.io, inputPath, .{ .iterate = true })) |dir| {
         defer dir.close(init.io);
 
         var it = dir.iterate();
@@ -53,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    const outputPath = std.fmt.allocPrint(init.gpa, "{s}.asm", .{baseName}) catch unreachable;
+    const outputPath = fmt.allocPrint(init.gpa, "{s}.asm", .{baseName}) catch unreachable;
     defer init.gpa.free(outputPath);
 
     // CodeWriter init

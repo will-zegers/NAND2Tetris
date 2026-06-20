@@ -1,6 +1,7 @@
 const std = @import("std");
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const testing = std.testing;
 
 pub const OperationType = enum {
     Add,
@@ -19,7 +20,7 @@ pub const OperationTypeMap = struct {
 
     map: StringHashMap(OperationType),
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         var map = StringHashMap(OperationType).init(allocator);
         errdefer map.deinit();
 
@@ -33,7 +34,7 @@ pub const OperationTypeMap = struct {
         try map.put("lt", .Lt);
         try map.put("gt", .Gt);
 
-        return Self{ .map = map };
+        return .{ .map = map };
     }
 
     pub fn deinit(self: *Self) void {
@@ -44,3 +45,8 @@ pub const OperationTypeMap = struct {
         return self.map.get(key);
     }
 };
+
+test "smoke" {
+    var map = try OperationTypeMap.init(testing.allocator);
+    defer map.deinit();
+}

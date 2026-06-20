@@ -1,5 +1,9 @@
 const std = @import("std");
+const Io = std.Io;
+const fmt = std.fmt;
 const mem = std.mem;
+const Allocator = mem.Allocator;
+const TokenIterator = mem.TokenIterator;
 const testing = std.testing;
 
 const mCommand = @import("map/command.zig");
@@ -23,34 +27,25 @@ pub const Arg1 = union {
 pub const Parser = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
+    allocator: Allocator,
     arg: [3]?[]const u8,
     buffer: []u8,
     commandMap: CommandTypeMap,
     operationMap: OperationTypeMap,
     segmentMap: SegmentTypeMap,
-    commands: mem.TokenIterator(u8, .scalar),
+    commands: TokenIterator(u8, .scalar),
 
-    pub fn init(filepath: []const u8, io: std.Io, allocator: mem.Allocator) !Self {
-        const buffer = try std.Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
+    pub fn init(filepath: []const u8, io: Io, allocator: Allocator) !Self {
+        const buffer = try Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
         errdefer allocator.free(buffer);
 
-        var commandMap = try CommandTypeMap.init(allocator);
-        errdefer commandMap.deinit();
-
-        var operationMap = try OperationTypeMap.init(allocator);
-        errdefer operationMap.deinit();
-
-        var segmentMap = try SegmentTypeMap.init(allocator);
-        errdefer segmentMap.deinit();
-
-        return Self{
+        return .{
             .allocator = allocator,
-            .arg = [3]?[]const u8{ null, null, null },
+            .arg = .{ null, null, null },
             .buffer = buffer,
-            .commandMap = commandMap,
-            .operationMap = operationMap,
-            .segmentMap = segmentMap,
+            .commandMap = try .init(allocator),
+            .operationMap = try .init(allocator),
+            .segmentMap = try .init(allocator),
             .commands = mem.tokenizeScalar(u8, buffer, '\n'),
         };
     }
@@ -117,7 +112,7 @@ pub const Parser = struct {
 
     pub fn arg2(self: Self) ?u16 {
         if (self.arg[2]) |arg| {
-            return std.fmt.parseInt(u16, arg, 10) catch null;
+            return fmt.parseInt(u16, arg, 10) catch null;
         }
         return null;
     }

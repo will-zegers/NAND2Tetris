@@ -1,6 +1,7 @@
 const std = @import("std");
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const testing = std.testing;
 
 pub const SegmentType = enum {
     Local,
@@ -18,7 +19,7 @@ pub const SegmentTypeMap = struct {
 
     map: StringHashMap(SegmentType),
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         var map = StringHashMap(SegmentType).init(allocator);
         errdefer map.deinit();
 
@@ -31,7 +32,7 @@ pub const SegmentTypeMap = struct {
         try map.put("static", .Static);
         try map.put("constant", .Constant);
 
-        return Self{ .map = map };
+        return .{ .map = map };
     }
 
     pub fn deinit(self: *Self) void {
@@ -42,3 +43,8 @@ pub const SegmentTypeMap = struct {
         return self.map.get(key);
     }
 };
+
+test "smoke" {
+    var map = try SegmentTypeMap.init(testing.allocator);
+    defer map.deinit();
+}

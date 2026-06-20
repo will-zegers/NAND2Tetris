@@ -1,6 +1,7 @@
 const std = @import("std");
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
 const AutoHashMap = std.AutoHashMap;
+const testing = std.testing;
 
 const mSegment = @import("segment.zig");
 const SegmentType = mSegment.SegmentType;
@@ -10,7 +11,7 @@ pub const BaseAddressMap = struct {
 
     map: AutoHashMap(SegmentType, u16),
 
-    pub fn init(allocator: mem.Allocator) !Self {
+    pub fn init(allocator: Allocator) !Self {
         var map = AutoHashMap(SegmentType, u16).init(allocator);
         errdefer map.deinit();
 
@@ -19,7 +20,7 @@ pub const BaseAddressMap = struct {
         try map.put(.Temp, 5);
         try map.put(.Static, 16);
 
-        return Self{ .map = map };
+        return .{ .map = map };
     }
 
     pub fn deinit(self: *Self) void {
@@ -30,3 +31,8 @@ pub const BaseAddressMap = struct {
         return self.map.get(key);
     }
 };
+
+test "smoke" {
+    var map = try BaseAddressMap.init(testing.allocator);
+    defer map.deinit();
+}

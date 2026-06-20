@@ -1,56 +1,41 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Io = std.Io;
 const Random = std.Random;
 const StringHashMap = std.StringHashMap;
 const fmt = std.fmt;
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const testing = std.testing;
 
 const tmpl = @import("template.zig");
-
-const mAddress = @import("map/address.zig");
-const BaseAddressMap = mAddress.BaseAddressMap;
-
-const mCommand = @import("map/command.zig");
-const CommandType = mCommand.CommandType;
-
-const mOperation = @import("map/operation.zig");
-const OperationType = mOperation.OperationType;
-
-const mSegment = @import("map/segment.zig");
-const SegmentType = mSegment.SegmentType;
+const BaseAddressMap = @import("map/address.zig").BaseAddressMap;
+const CommandType = @import("map/command.zig").CommandType;
+const OperationType = @import("map/operation.zig").OperationType;
+const SegmentType = @import("map/segment.zig").SegmentType;
 
 const TAG_SIZE: usize = 5;
-
-const CodeWriterError = error{
-    LabelRedeclaration,
-};
 
 pub const CodeWriter = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
+    allocator: Allocator,
     instructions: ArrayList([]const u8),
     baseAddrTable: BaseAddressMap,
     outputPath: []const u8,
     rng: Random.IoSource,
-    instructionCount: usize,
-    staticNamespace: ?[]const u8,
-    subroutineNamespace: ?[]const u8,
 
-    pub fn init(io: std.Io, allocator: mem.Allocator, outputPath: []const u8) !Self {
-        var baseAddrTable = try BaseAddressMap.init(allocator);
-        errdefer baseAddrTable.deinit();
+    instructionCount: usize = 0,
+    staticNS: ?[]const u8 = null, // static namespace
+    subroutineNS: ?[]const u8 = null, // function namespace
 
-        return Self{
+    pub fn init(io: Io, allocator: Allocator, outputPath: []const u8) !Self {
+        return .{
             .allocator = allocator,
             .instructions = try .initCapacity(allocator, 512),
-            .baseAddrTable = baseAddrTable,
+            .baseAddrTable = try .init(allocator),
             .outputPath = outputPath,
             .rng = .{ .io = io },
-            .instructionCount = 0,
-            .staticNamespace = null,
-            .subroutineNamespace = null,
         };
     }
 
@@ -72,9 +57,9 @@ pub const CodeWriter = struct {
             vmFilename = item;
         }
 
-        // Remove the .vm extension and set the static context
+        // Remove the .vm extension and set the static namespace
         it = mem.splitScalar(u8, vmFilename, '.');
-        self.staticNamespace = it.first();
+        self.staticNS = it.first();
     }
 
     pub fn writeInit(self: *Self) !void {
@@ -109,7 +94,7 @@ pub const CodeWriter = struct {
     }
 
     /// Generate a random label to be embbed in the output code. Caller owns the label
-    fn generateRandomTag(self: Self, allocator: mem.Allocator) ![]const u8 {
+    fn generateRandomTag(self: Self, allocator: Allocator) ![]const u8 {
         const iRng = self.rng.interface();
 
         var tag = try allocator.alloc(u8, TAG_SIZE);
@@ -134,7 +119,7 @@ pub const CodeWriter = struct {
     fn writePush(self: *Self, segment: SegmentType, index: usize) !void {
         var buf: []u8 = undefined;
         switch (segment) {
-            .Local, .Argument, .This, .That => {
+            .Argument, .Local, .That, .This => {
                 const pAddr: u8 = switch (segment) {
                     .Local => '1',
                     .Argument => '2',
@@ -145,9 +130,9 @@ pub const CodeWriter = struct {
                 buf = try fmt.allocPrint(self.allocator, tmpl.PushMemory, .{ index, pAddr });
             },
             .Static => {
-                buf = try fmt.allocPrint(self.allocator, tmpl.PushStatic, .{ self.staticNamespace.?, index });
+                buf = try fmt.allocPrint(self.allocator, tmpl.PushStatic, .{ self.staticNS.?, index });
             },
-            else => { // .Temp, .Pointer
+            .Constant, .Pointer, .Temp => {
                 const baseAddr = self.baseAddrTable.get(segment).?;
                 const addrOffset = baseAddr + index;
                 const source: u8 = if (segment == .Constant) 'A' else 'M';
@@ -161,7 +146,7 @@ pub const CodeWriter = struct {
     fn writePop(self: *Self, segment: SegmentType, index: usize) !void {
         var buf: []u8 = undefined;
         switch (segment) {
-            .Local, .Argument, .This, .That => {
+            .Argument, .Local, .That, .This => {
                 const pAddr: u8 = switch (segment) {
                     .Local => '1',
                     .Argument => '2',
@@ -172,9 +157,9 @@ pub const CodeWriter = struct {
                 buf = try fmt.allocPrint(self.allocator, tmpl.PopMemory, .{ index, pAddr });
             },
             .Static => {
-                buf = try fmt.allocPrint(self.allocator, tmpl.PopStatic, .{ self.staticNamespace.?, index });
+                buf = try fmt.allocPrint(self.allocator, tmpl.PopStatic, .{ self.staticNS.?, index });
             },
-            else => { // .Temp, .Pointer
+            .Constant, .Pointer, .Temp => { // .Temp, .Pointer
                 const baseAddr = self.baseAddrTable.get(segment).?;
                 const addrOffset = baseAddr + index;
                 buf = try fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
@@ -185,11 +170,11 @@ pub const CodeWriter = struct {
     }
 
     pub fn writeLabel(self: *Self, label: []const u8) !void {
-        try self.createLabelEntry(label, self.subroutineNamespace);
+        try self.createLabelEntry(label, self.subroutineNS);
     }
 
-    fn createLabelEntry(self: *Self, label: []const u8, subroutineNamespace: ?[]const u8) !void {
-        const labelKey = if (subroutineNamespace) |ctx|
+    fn createLabelEntry(self: *Self, label: []const u8, subroutineNS: ?[]const u8) !void {
+        const labelKey = if (subroutineNS) |ctx|
             try fmt.allocPrint(self.allocator, "({s}${s})", .{ ctx, label })
         else
             try fmt.allocPrint(self.allocator, "({s})", .{label});
@@ -209,7 +194,7 @@ pub const CodeWriter = struct {
     /// Handles the bulk of writing 'goto' and 'if-goto' instructions, and
     /// depends only on the assembly implementation of either
     fn writeGotoOrIf(self: *Self, label: []const u8, comptime template: []const u8) !void {
-        const fullLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.subroutineNamespace.?, label });
+        const fullLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.subroutineNS.?, label });
         defer self.allocator.free(fullLabel);
 
         const buf = try fmt.allocPrint(self.allocator, template, .{fullLabel});
@@ -219,7 +204,7 @@ pub const CodeWriter = struct {
 
     pub fn writeFunction(self: *Self, functionName: []const u8, numLocals: usize) !void {
         try self.createLabelEntry(functionName, null);
-        self.subroutineNamespace = functionName;
+        self.subroutineNS = functionName;
 
         // Initialize 'numLocals' local variables to 0
         for (0..numLocals) |_| {
@@ -236,7 +221,7 @@ pub const CodeWriter = struct {
         const returnTag = try self.generateRandomTag(self.allocator);
         defer self.allocator.free(returnTag);
 
-        const returnLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.subroutineNamespace.?, returnTag });
+        const returnLabel = try fmt.allocPrint(self.allocator, "{s}${s}", .{ self.subroutineNS.?, returnTag });
         defer self.allocator.free(returnLabel);
 
         const buf = try fmt.allocPrint(self.allocator, tmpl.Call, .{ returnLabel, numArgs, functionName });
@@ -246,11 +231,11 @@ pub const CodeWriter = struct {
         try self.createLabelEntry(returnLabel, null);
     }
 
-    pub fn close(self: *Self, io: std.Io) !void {
+    pub fn close(self: *Self, io: Io) !void {
         const output = try mem.join(self.allocator, "\n", self.instructions.items);
         defer self.allocator.free(output);
 
-        const outputFile = try std.Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
+        const outputFile = try Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
         defer outputFile.close(io);
 
         try outputFile.writeStreamingAll(io, output);
@@ -263,8 +248,8 @@ test "smoke" {
 
     try testing.expectEqual(cw.instructions.items.len, 0);
     try testing.expectEqual(cw.instructionCount, 0);
-    try testing.expectEqual(cw.staticNamespace, null);
-    try testing.expectEqual(cw.subroutineNamespace, null);
+    try testing.expectEqual(cw.staticNS, null);
+    try testing.expectEqual(cw.subroutineNS, null);
 }
 
 test "writePushPop" {
@@ -314,15 +299,15 @@ test "setFileName and close" {
     defer cw.deinit();
 
     cw.setFileName("test/Test.vm");
-    try testing.expectEqualStrings("Test", cw.staticNamespace.?);
+    try testing.expectEqualStrings("Test", cw.staticNS.?);
     try cw.writePushPop(.C_PUSH, .Constant, 42);
     try cw.writePushPop(.C_PUSH, .Constant, 27);
     try cw.writeArithmetic(.Add);
     try cw.close(testing.io);
 
-    const file = try std.Io.Dir.cwd().openFile(testing.io, outputPath, .{ .mode = .read_only });
+    const file = try Io.Dir.cwd().openFile(testing.io, outputPath, .{ .mode = .read_only });
     defer file.close(testing.io);
-    defer std.Io.Dir.cwd().deleteFile(testing.io, outputPath) catch {
+    defer Io.Dir.cwd().deleteFile(testing.io, outputPath) catch {
         std.debug.print("Failed to delete test file: {s}\n", .{outputPath});
     };
 

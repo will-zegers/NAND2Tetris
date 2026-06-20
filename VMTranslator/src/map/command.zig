@@ -1,6 +1,7 @@
 const std = @import("std");
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const testing = std.testing;
 
 pub const CommandType = enum {
     C_ARITHMETIC,
@@ -17,11 +18,11 @@ pub const CommandType = enum {
 pub const CommandTypeMap = struct {
     const Self = @This();
 
-    allocator: mem.Allocator,
-    map: std.StringHashMap(CommandType),
+    allocator: Allocator,
+    map: StringHashMap(CommandType),
 
-    pub fn init(allocator: mem.Allocator) !Self {
-        var map = std.StringHashMap(CommandType).init(allocator);
+    pub fn init(allocator: Allocator) !Self {
+        var map = StringHashMap(CommandType).init(allocator);
         errdefer map.deinit();
 
         try map.put("add", .C_ARITHMETIC);
@@ -42,7 +43,7 @@ pub const CommandTypeMap = struct {
         try map.put("push", .C_PUSH);
         try map.put("return", .C_RETURN);
 
-        return Self{ .allocator = allocator, .map = map };
+        return .{ .allocator = allocator, .map = map };
     }
 
     pub fn deinit(self: *Self) void {
@@ -53,3 +54,8 @@ pub const CommandTypeMap = struct {
         return self.map.get(key);
     }
 };
+
+test "smoke" {
+    var map = try CommandTypeMap.init(testing.allocator);
+    defer map.deinit();
+}
