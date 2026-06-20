@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const process = std.process;
 const testing = std.testing;
 const StringHashMap = std.StringHashMap;
 
@@ -52,8 +53,10 @@ pub const CompTable = struct {
         defer self.map.deinit();
     }
 
-    pub fn get(self: Self, key: []const u8) ?[]const u8 {
-        return self.map.get(key);
+    pub fn get(self: Self, key: []const u8) []const u8 {
+        return self.map.get(key) orelse {
+            process.fatal("{any}: Unrecognized comp: {s}\n", .{ Self, key });
+        };
     }
 };
 
