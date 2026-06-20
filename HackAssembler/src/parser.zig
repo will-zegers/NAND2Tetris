@@ -80,9 +80,9 @@ pub const Parser = struct {
     pub fn symbol(self: *Self) ?[]const u8 {
         if (self.currentInstruction) |instr| {
             return switch (self.commandType().?) {
-                .A_COMMAND => instr[1..],
-                .L_COMMAND => instr[1 .. instr.len - 1],
-                else => null,
+                .A_COMMAND => instr[1..], // remove '@'...
+                .L_COMMAND => instr[1 .. instr.len - 1], // remove '(' ... ')'
+                .C_COMMAND => null,
             };
         }
 
