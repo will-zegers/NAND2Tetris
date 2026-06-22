@@ -19,8 +19,8 @@ pub const Parser = struct {
     currentInstruction: ?[]const u8,
     instructions: mem.TokenIterator(u8, .scalar),
 
-    pub fn init(filepath: []const u8, io: Io, allocator: Allocator) !Self {
-        const buffer = try Io.Dir.cwd().readFileAlloc(io, filepath, allocator, .unlimited);
+    pub fn init(inputFile: []const u8, io: Io, allocator: Allocator) !Self {
+        const buffer = try Io.Dir.cwd().readFileAlloc(io, inputFile, allocator, .unlimited);
         errdefer allocator.free(buffer);
 
         return .{

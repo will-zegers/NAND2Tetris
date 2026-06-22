@@ -29,21 +29,16 @@ pub fn main(init: Init) !void {
         previous = it.next().?;
     }
 
-    // Run the assembler
-    var assembler = try Assembler.init(inputPath, init.io, init.gpa);
-    defer assembler.deinit();
-
-    const output = try assembler.assemble(init.gpa);
-    defer init.gpa.free(output);
-
     // Write out to a .hack file
     const outputPath = try fmt.allocPrint(init.gpa, "{s}.hack", .{baseName});
     defer init.gpa.free(outputPath);
 
-    const outputFile = try Io.Dir.cwd().createFile(init.io, outputPath, .{ .read = false });
-    defer outputFile.close(init.io);
+    // Run the assembler
+    var assembler = try Assembler.init(inputPath, outputPath, init.io, init.gpa);
+    defer assembler.deinit();
 
-    try outputFile.writePositionalAll(init.io, output, 0);
+    try assembler.assemble();
+    try assembler.close(init.io);
 
     try stdout.writeStreamingAll(init.io, "File written to ");
     try stdout.writeStreamingAll(init.io, outputPath);

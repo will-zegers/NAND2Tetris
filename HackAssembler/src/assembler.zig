@@ -18,14 +18,16 @@ pub const Assembler = struct {
     code: Code,
     symbolTable: SymbolTable,
     instructions: ArrayList([]const u8),
+    outputPath: []const u8,
 
-    pub fn init(asmPath: []const u8, io: Io, allocator: Allocator) !Self {
+    pub fn init(inputFile: []const u8, outputPath: []const u8, io: Io, allocator: Allocator) !Self {
         return .{
             .allocator = allocator,
-            .parser = try .init(asmPath, io, allocator),
+            .parser = try .init(inputFile, io, allocator),
             .code = try .init(allocator),
             .symbolTable = try .init(allocator),
             .instructions = try .initCapacity(allocator, 512),
+            .outputPath = outputPath,
         };
     }
 
@@ -42,11 +44,9 @@ pub const Assembler = struct {
 
     /// "AVENGERS...✪!!!"
     /// Caller owns the returned slice
-    pub fn assemble(self: *Self, allocator: Allocator) ![]const u8 {
+    pub fn assemble(self: *Self) !void {
         try self.firstPass();
         try self.secondPass();
-
-        return mem.join(allocator, "\n", self.instructions.items);
     }
 
     // First pass: resolve labels and build symbol table
@@ -103,6 +103,16 @@ pub const Assembler = struct {
             }
             try self.instructions.append(self.allocator, buf);
         }
+    }
+
+    pub fn close(self: Self, io: Io) !void {
+        const output = try mem.join(self.allocator, "\n", self.instructions.items);
+        defer self.allocator.free(output);
+
+        const outputFile = try Io.Dir.cwd().createFile(io, self.outputPath, .{ .read = false });
+        defer outputFile.close(io);
+
+        try outputFile.writeStreamingAll(io, output);
     }
 };
 
