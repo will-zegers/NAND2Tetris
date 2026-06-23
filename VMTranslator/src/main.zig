@@ -6,8 +6,8 @@ const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
 
-const CodeWriter = @import("./code_writer.zig").CodeWriter;
-const Parser = @import("./parser.zig").Parser;
+const CodeWriter = @import("CodeWriter.zig");
+const Parser = @import("Parser.zig");
 
 pub fn main(init: Init) !void {
     const stdout = Io.File.stdout();
@@ -60,7 +60,7 @@ pub fn main(init: Init) !void {
     defer init.gpa.free(outputPath);
 
     // CodeWriter init
-    var codeWriter = CodeWriter.init(init.io, init.gpa, outputPath) catch {
+    var codeWriter = CodeWriter.init(init.gpa, init.io, outputPath) catch {
         try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
         process.exit(1);
     };
@@ -75,7 +75,7 @@ pub fn main(init: Init) !void {
 
         codeWriter.setFileName(filepath);
         // Parser init (new Parser for each .vm file)
-        var parser = Parser.init(filepath, init.io, init.gpa) catch {
+        var parser = Parser.init(init.gpa, init.io, filepath) catch {
             try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
             process.exit(1);
         };
