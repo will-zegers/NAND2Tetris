@@ -4,7 +4,7 @@ const Io = std.Io;
 const fmt = std.fmt;
 const mem = std.mem;
 
-const Assembler = @import("assembler.zig").Assembler;
+const Assembler = @import("Assembler.zig");
 
 pub fn main(init: Init) !void {
     const stdout = Io.File.stdout();
