@@ -40,7 +40,5 @@ pub fn main(init: Init) !void {
     try assembler.assemble();
     try assembler.close(init.io);
 
-    try stdout.writeStreamingAll(init.io, "File written to ");
-    try stdout.writeStreamingAll(init.io, outputPath);
-    try stdout.writeStreamingAll(init.io, "\n");
+    std.log.info("File written to {s}", .{outputPath});
 }

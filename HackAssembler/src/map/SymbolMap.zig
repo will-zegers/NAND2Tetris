@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const testing = std.testing;
 
 const Self = @This();
 
@@ -67,14 +66,14 @@ pub fn put(self: *Self, key: []const u8, value: usize) !void {
 }
 
 test "smoke" {
-    var map = try init(testing.allocator);
+    var map = try init(std.testing.allocator);
     defer map.deinit();
 }
 
 test "put" {
-    var map = try init(testing.allocator);
+    var map = try init(std.testing.allocator);
     defer map.deinit();
 
     try map.put("foo", 1234);
-    try testing.expectEqual(map.get("foo").?, 1234);
+    try std.testing.expectEqual(map.get("foo").?, 1234);
 }

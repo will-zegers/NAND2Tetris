@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const process = std.process;
-const testing = std.testing;
 
 const Self = @This();
 
@@ -33,11 +31,12 @@ pub fn deinit(self: *Self) void {
 
 pub fn get(self: Self, key: []const u8) []const u8 {
     return self.map.get(key) orelse {
-        process.fatal("{any}: Unrecognized dest: '{s}'\n", .{ Self, key });
+        std.log.err("{any} Unrecognized dest: {s}", .{ Self, key });
+        std.process.exit(1);
     };
 }
 
 test "smoke" {
-    var map = try init(testing.allocator);
+    var map = try init(std.testing.allocator);
     defer map.deinit();
 }
