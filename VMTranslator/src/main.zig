@@ -6,22 +6,19 @@ const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
 
-const CodeWriter = @import("CodeWriter.zig");
-const Parser = @import("Parser.zig");
+const Translator = @import("Translator.zig");
 
 pub fn main(init: Init) !void {
-    const stdout = Io.File.stdout();
-
     // Parse input args for the input file or directory
-    var iterator =
+    var args =
         try init.minimal.args.iterateAllocator(
             init.gpa,
         );
-    defer iterator.deinit();
+    defer args.deinit();
 
-    _ = iterator.skip(); // skip the executable name
-    const inputPath = iterator.next() orelse {
-        try stdout.writeStreamingAll(init.io, "Usage: VMTranslator <input_file>\n");
+    _ = args.skip(); // skip the executable name
+    const inputPath = args.next() orelse {
+        try Io.File.stdout().writeStreamingAll(init.io, "Usage: VMTranslator <input_file>\n");
         return;
     };
 
@@ -29,6 +26,9 @@ pub fn main(init: Init) !void {
     var baseName: []const u8 = undefined;
     var inputFilesList: ArrayList([]const u8) = .empty;
     defer {
+        for (inputFilesList.items) |item| {
+            init.gpa.free(item);
+        }
         inputFilesList.deinit(init.gpa);
     }
 
@@ -43,8 +43,7 @@ pub fn main(init: Init) !void {
                 try inputFilesList.append(init.gpa, filePath);
             }
         }
-        var splitter = mem.splitScalar(u8, inputPath, '/');
-        baseName = splitter.first(); // Set the basename (and output .asm) to the top-level directory name
+        baseName = if (mem.endsWith(u8, inputPath, "/")) inputPath[0 .. inputPath.len - 1] else inputPath;
     } else |err| { // ...or just a single file, in which case we'll parse just that one.
         switch (err) {
             error.NotDir => {
@@ -59,135 +58,14 @@ pub fn main(init: Init) !void {
     const outputPath = fmt.allocPrint(init.gpa, "{s}.asm", .{baseName}) catch unreachable;
     defer init.gpa.free(outputPath);
 
-    // CodeWriter init
-    var codeWriter = CodeWriter.init(init.gpa, init.io, outputPath) catch {
-        try stdout.writeStreamingAll(init.io, "Error initializing code writer\n");
-        process.exit(1);
-    };
-    defer codeWriter.deinit();
-    codeWriter.writeInit() catch {
-        try stdout.writeStreamingAll(init.io, "Error writing bootstrap code\n");
-        process.exit(1);
-    };
+    var translator = try Translator.init(init.gpa, init.io, outputPath);
+    defer translator.deinit();
 
     while (inputFilesList.pop()) |filepath| {
         defer init.gpa.free(filepath);
-
-        codeWriter.setFileName(filepath);
-        // Parser init (new Parser for each .vm file)
-        var parser = Parser.init(init.gpa, init.io, filepath) catch {
-            try stdout.writeStreamingAll(init.io, "Error initializing parser\n");
-            process.exit(1);
-        };
-        defer parser.deinit();
-
-        // Main translation loop
-        while (parser.hasMoreCommands()) {
-            parser.advance();
-            const commandType = parser.commandType() orelse {
-                try stdout.writeStreamingAll(init.io, "Error parsing command: unrecognized command type\n");
-                process.exit(1);
-            };
-
-            switch (commandType) {
-                .C_ARITHMETIC => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeArithmetic(arg1.operation) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing arithmetic command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_CALL => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    const numArgs = parser.arg2() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeCall(arg1.label, numArgs) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_FUNCTION => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    const numLocals = parser.arg2() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeFunction(arg1.label, numLocals) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_GOTO => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeGoto(arg1.label) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing goto command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_IF => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeIf(arg1.label) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing if-goto command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_LABEL => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writeLabel(arg1.label) catch {
-                        try stdout.writeStreamingAll(init.io, "Error creating label\n");
-                        process.exit(1);
-                    };
-                },
-                .C_PUSH, .C_POP => {
-                    const arg1 = parser.arg1() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing first argument\n");
-                        process.exit(1);
-                    };
-                    const index = parser.arg2() orelse {
-                        try stdout.writeStreamingAll(init.io, "Error parsing command: missing index\n");
-                        process.exit(1);
-                    };
-                    codeWriter.writePushPop(commandType, arg1.segment, index) catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing push/pop command\n");
-                        process.exit(1);
-                    };
-                },
-                .C_RETURN => {
-                    codeWriter.writeReturn() catch {
-                        try stdout.writeStreamingAll(init.io, "Error writing return command\n");
-                        process.exit(1);
-                    };
-                },
-            }
-        }
+        try translator.translate(filepath);
     }
+    try translator.close();
 
-    codeWriter.close(init.io) catch {
-        try stdout.writeStreamingAll(init.io, "Error closing code writer\n");
-        return;
-    };
-
-    try stdout.writeStreamingAll(init.io, "File written to ");
-    try stdout.writeStreamingAll(init.io, outputPath);
-    try stdout.writeStreamingAll(init.io, "\n");
+    std.log.info("File written to {s}", .{outputPath});
 }

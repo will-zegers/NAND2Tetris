@@ -49,8 +49,11 @@ pub fn deinit(self: *Self) void {
     self.map.deinit();
 }
 
-pub fn get(self: Self, key: []const u8) ?Type {
-    return self.map.get(key);
+pub fn get(self: Self, key: []const u8) Type {
+    return self.map.get(key) orelse {
+        std.log.err("'{s}' is not a valid command", .{key});
+        std.process.exit(1);
+    };
 }
 
 test "smoke" {

@@ -25,8 +25,11 @@ pub fn deinit(self: *Self) void {
     self.map.deinit();
 }
 
-pub fn get(self: Self, key: Segment) ?u16 {
-    return self.map.get(key);
+pub fn get(self: Self, key: Segment) usize {
+    return self.map.get(key) orelse {
+        std.log.err("'{}' is not a valid segment with a base address", .{key});
+        std.process.exit(1);
+    };
 }
 
 test "smoke" {

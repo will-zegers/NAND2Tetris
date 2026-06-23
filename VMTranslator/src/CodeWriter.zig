@@ -132,7 +132,7 @@ fn writePush(self: *Self, segment: Segment, index: usize) !void {
             buf = try fmt.allocPrint(self.allocator, tmpl.PushStatic, .{ self.staticNS.?, index });
         },
         .Constant, .Pointer, .Temp => {
-            const baseAddr = self.baseAddrTable.get(segment).?;
+            const baseAddr = self.baseAddrTable.get(segment);
             const addrOffset = baseAddr + index;
             const source: u8 = if (segment == .Constant) 'A' else 'M';
             buf = try fmt.allocPrint(self.allocator, tmpl.Push, .{ addrOffset, source });
@@ -159,7 +159,7 @@ fn writePop(self: *Self, segment: Segment, index: usize) !void {
             buf = try fmt.allocPrint(self.allocator, tmpl.PopStatic, .{ self.staticNS.?, index });
         },
         .Constant, .Pointer, .Temp => { // .Temp, .Pointer
-            const baseAddr = self.baseAddrTable.get(segment).?;
+            const baseAddr = self.baseAddrTable.get(segment);
             const addrOffset = baseAddr + index;
             buf = try fmt.allocPrint(self.allocator, tmpl.Pop, .{addrOffset});
         },

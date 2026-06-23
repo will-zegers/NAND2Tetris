@@ -91,7 +91,7 @@ pub fn arg1(self: Self) ?Arg1 {
     switch (self.commandType().?) {
         .C_ARITHMETIC => {
             return Arg1{
-                .operation = self.operationMap.get(self.arg[0].?).?,
+                .operation = self.operationMap.get(self.arg[0].?),
             };
         },
         .C_CALL, .C_FUNCTION, .C_IF, .C_LABEL, .C_GOTO => {
@@ -99,7 +99,7 @@ pub fn arg1(self: Self) ?Arg1 {
         },
         .C_PUSH, .C_POP => {
             return Arg1{
-                .segment = self.segmentMap.get(self.arg[1].?).?,
+                .segment = self.segmentMap.get(self.arg[1].?),
             };
         },
         else => return null,
